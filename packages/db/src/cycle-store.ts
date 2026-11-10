@@ -1,7 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import {
+  EVENT_DAY_MESSAGE,
   MONTHS_LONG,
+  calendarEventCreateSchema,
+  calendarEventPatchSchema,
+  debtCreateSchema,
+  debtPatchSchema,
+  eventDayIsValid,
+  type CalendarEventCreate,
+  type CalendarEventPatch,
+  type DebtCreate,
+  type DebtPatch,
   cycleConfirmSchema,
   cycleDraftSchema,
   lastUsedAmounts,
@@ -36,7 +46,7 @@ const monthName = (ym: YearMonth) => {
   return `${MONTHS_LONG[month - 1]} ${year}`;
 };
 
-/** Cycles (the monthly planning), their transfers, and the debts and dates loaded with the history. */
+/** Cycles (the monthly planning) and their transfers, plus the debts and the calendar dates. */
 export class CycleStore {
   constructor(private readonly db: Db) {}
 
@@ -271,21 +281,78 @@ export class CycleStore {
   // ---------- debts and dates ----------
 
   listDebts(): Debt[] {
-    return this.db
-      .select()
-      .from(debts)
-      .orderBy(asc(debts.date))
-      .all()
-      .map((d) => ({ id: d.id, date: d.date, description: d.description, amountCents: d.amountCents, paidOn: d.paidOn, note: d.note }));
+    return this.db.select().from(debts).orderBy(asc(debts.date), asc(debts.createdAt)).all().map(toDebt);
+  }
+
+  getDebt(id: string): Debt {
+    const d = this.db.select().from(debts).where(eq(debts.id, id)).get();
+    if (!d) throw new StoreError('not_found', 'debito non trovato');
+    return toDebt(d);
+  }
+
+  createDebt(input: DebtCreate, by: string): Debt {
+    const d = debtCreateSchema.parse(input);
+    const id = randomUUID();
+    this.db
+      .insert(debts)
+      .values({ id, ...d, paidOn: d.paidOn ?? null, note: d.note || null, createdBy: by, updatedBy: by })
+      .run();
+    return this.getDebt(id);
+  }
+
+  /** Edits a debt; `paidOn` marks it as paid (null reopens it). */
+  updateDebt(id: string, input: DebtPatch, by: string): Debt {
+    const p = debtPatchSchema.parse(input);
+    this.getDebt(id);
+    const set = { ...p, ...('note' in p ? { note: p.note || null } : {}), ...('paidOn' in p ? { paidOn: p.paidOn ?? null } : {}) };
+    this.db.update(debts).set({ ...set, updatedAt: nowIso(), updatedBy: by }).where(eq(debts.id, id)).run();
+    return this.getDebt(id);
+  }
+
+  deleteDebt(id: string): void {
+    this.getDebt(id);
+    this.db.delete(debts).where(eq(debts.id, id)).run();
   }
 
   listCalendarEvents(): CalendarEvent[] {
     return this.db
       .select()
       .from(calendarEvents)
-      .orderBy(asc(calendarEvents.month), asc(calendarEvents.day))
+      .orderBy(asc(calendarEvents.month), asc(calendarEvents.day), asc(calendarEvents.title))
       .all()
-      .map((e) => ({ id: e.id, type: e.type, title: e.title, month: e.month, day: e.day, note: e.note }));
+      .map(toEvent);
+  }
+
+  getCalendarEvent(id: string): CalendarEvent {
+    const e = this.db.select().from(calendarEvents).where(eq(calendarEvents.id, id)).get();
+    if (!e) throw new StoreError('not_found', 'data non trovata');
+    return toEvent(e);
+  }
+
+  createCalendarEvent(input: CalendarEventCreate, by: string): CalendarEvent {
+    const e = calendarEventCreateSchema.parse(input);
+    const id = randomUUID();
+    this.db
+      .insert(calendarEvents)
+      .values({ id, ...e, note: e.note || null, createdBy: by, updatedBy: by })
+      .run();
+    return this.getCalendarEvent(id);
+  }
+
+  updateCalendarEvent(id: string, input: CalendarEventPatch, by: string): CalendarEvent {
+    const p = calendarEventPatchSchema.parse(input);
+    const current = this.getCalendarEvent(id);
+    // The day is checked against the month it ends up in.
+    if (!eventDayIsValid({ month: p.month ?? current.month, day: p.day === undefined ? current.day : p.day }))
+      throw new StoreError('invalid', EVENT_DAY_MESSAGE);
+    const set = { ...p, ...('note' in p ? { note: p.note || null } : {}) };
+    this.db.update(calendarEvents).set({ ...set, updatedAt: nowIso(), updatedBy: by }).where(eq(calendarEvents.id, id)).run();
+    return this.getCalendarEvent(id);
+  }
+
+  deleteCalendarEvent(id: string): void {
+    this.getCalendarEvent(id);
+    this.db.delete(calendarEvents).where(eq(calendarEvents.id, id)).run();
   }
 
   // ---------- history import ----------
@@ -388,3 +455,17 @@ export class CycleStore {
     return { cycles: file.cycles.length, debts: file.debts.length, calendarEvents: file.calendarEvents.length };
   }
 }
+
+type DebtRow = typeof debts.$inferSelect;
+type EventRow = typeof calendarEvents.$inferSelect;
+
+const toDebt = (d: DebtRow): Debt => ({
+  id: d.id,
+  date: d.date,
+  description: d.description,
+  amountCents: d.amountCents,
+  paidOn: d.paidOn,
+  note: d.note,
+});
+
+const toEvent = (e: EventRow): CalendarEvent => ({ id: e.id, type: e.type, title: e.title, month: e.month, day: e.day, note: e.note });

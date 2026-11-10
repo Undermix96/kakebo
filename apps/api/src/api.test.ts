@@ -179,3 +179,49 @@ describe('cycles API', () => {
     expect((await json('POST', '/api/import/history', file)).status).toBe(409);
   });
 });
+
+describe('reminders API', () => {
+  it('adds, edits, pays and deletes a debt', async () => {
+    const { json, sqlite } = setup();
+    const res = await json('POST', '/api/debts', { date: '2026-05-26', description: 'Mensa', amountCents: 24352, note: '' });
+    expect(res.status).toBe(201);
+    const debt = await res.json();
+    expect(debt).toMatchObject({ description: 'Mensa', amountCents: 24352, paidOn: null, note: null });
+
+    const paid = await (await json('PATCH', `/api/debts/${debt.id}`, { paidOn: '2026-11-10' })).json();
+    expect(paid).toMatchObject({ paidOn: '2026-11-10', description: 'Mensa' });
+    const reopened = await (await json('PATCH', `/api/debts/${debt.id}`, { paidOn: null, amountCents: 24000 })).json();
+    expect(reopened).toMatchObject({ paidOn: null, amountCents: 24000 });
+    expect(sqlite.prepare('select updated_by as by from debts').get()).toEqual({ by: 'dev@example.com' });
+
+    expect((await json('POST', '/api/debts', { date: '2026-05-26', description: 'X', amountCents: 0 })).status).toBe(422);
+    expect((await json('POST', '/api/debts', { date: '26/05/2026', description: 'X', amountCents: 1 })).status).toBe(422);
+    expect((await json('PATCH', '/api/debts/nope', { paidOn: null })).status).toBe(404);
+
+    expect((await json('DELETE', `/api/debts/${debt.id}`)).status).toBe(200);
+    expect(await (await json('GET', '/api/debts')).json()).toEqual([]);
+    expect((await json('DELETE', `/api/debts/${debt.id}`)).status).toBe(404);
+  });
+
+  it('adds, edits and deletes calendar dates, checking the day', async () => {
+    const { json } = setup();
+    const res = await json('POST', '/api/calendar-events', { type: 'birthday', title: 'Compleanno Leo', month: 7, day: 9 });
+    expect(res.status).toBe(201);
+    const ev = await res.json();
+    expect(ev).toMatchObject({ type: 'birthday', month: 7, day: 9, note: null });
+
+    expect((await json('POST', '/api/calendar-events', { type: 'birthday', title: 'X', month: 4, day: 31 })).status).toBe(422);
+    // Moving July 31 to June: the day no longer exists.
+    await json('PATCH', `/api/calendar-events/${ev.id}`, { day: 31 });
+    expect((await json('PATCH', `/api/calendar-events/${ev.id}`, { month: 6 })).status).toBe(422);
+    const undated = await (await json('PATCH', `/api/calendar-events/${ev.id}`, { month: 6, day: null })).json();
+    expect(undated).toMatchObject({ month: 6, day: null });
+
+    await json('POST', '/api/calendar-events', { type: 'other', title: 'Natale', month: 12, day: 25 });
+    const list = await (await json('GET', '/api/calendar-events')).json();
+    expect(list.map((e: { title: string }) => e.title)).toEqual(['Compleanno Leo', 'Natale']);
+
+    expect((await json('DELETE', `/api/calendar-events/${ev.id}`)).status).toBe(200);
+    expect((await json('PATCH', `/api/calendar-events/${ev.id}`, { title: 'Y' })).status).toBe(404);
+  });
+});

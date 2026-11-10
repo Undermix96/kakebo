@@ -5,12 +5,17 @@ import type {
   AccountCreate,
   AccountPatch,
   AccountRecord,
+  CalendarEvent,
+  CalendarEventCreate,
+  CalendarEventPatch,
   CatalogImport,
   CatalogItem,
   CycleConfirm,
   CycleDraft,
   CycleRecord,
   Debt,
+  DebtCreate,
+  DebtPatch,
   HistoryImport,
   ItemCreate,
   ItemPatch,
@@ -150,3 +155,48 @@ export function useStampTransfer() {
     onSettled: () => qc.invalidateQueries({ queryKey: ['cycles'] }),
   });
 }
+
+// ---------- reminders: debts and calendar dates ----------
+
+export function useCalendarEvents() {
+  return useQuery({ queryKey: ['calendar-events'], queryFn: () => unwrap<CalendarEvent[]>(client.api['calendar-events'].$get()) });
+}
+
+function useListMutation<V, R>(key: string, fn: (v: V) => Promise<Response>) {
+  const qc = useQueryClient();
+  return useMutation<R, ApiError, V>({
+    mutationFn: (v) => unwrap<R>(fn(v)),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [key] }),
+  });
+}
+
+export const useCreateDebt = () => useListMutation<DebtCreate, Debt>('debts', (json) => client.api.debts.$post({ json }));
+export const useDeleteDebt = () =>
+  useListMutation<string, { ok: true }>('debts', (id) => client.api.debts[':id'].$delete({ param: { id } }));
+
+/** Editing a debt is optimistic, so "segna come saldato" stamps at once. */
+export function useUpdateDebt() {
+  const qc = useQueryClient();
+  return useMutation<Debt, ApiError, { id: string; patch: DebtPatch }, { before?: Debt[] }>({
+    mutationFn: ({ id, patch }) => unwrap(client.api.debts[':id'].$patch({ param: { id }, json: patch })),
+    onMutate: async ({ id, patch }) => {
+      await qc.cancelQueries({ queryKey: ['debts'] });
+      const before = qc.getQueryData<Debt[]>(['debts']);
+      qc.setQueryData<Debt[]>(['debts'], (list) => list?.map((d) => (d.id === id ? ({ ...d, ...patch } as Debt) : d)));
+      return { before };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.before) qc.setQueryData(['debts'], ctx.before);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ['debts'] }),
+  });
+}
+
+export const useCreateCalendarEvent = () =>
+  useListMutation<CalendarEventCreate, CalendarEvent>('calendar-events', (json) => client.api['calendar-events'].$post({ json }));
+export const useUpdateCalendarEvent = () =>
+  useListMutation<{ id: string; patch: CalendarEventPatch }, CalendarEvent>('calendar-events', ({ id, patch }) =>
+    client.api['calendar-events'][':id'].$patch({ param: { id }, json: patch }),
+  );
+export const useDeleteCalendarEvent = () =>
+  useListMutation<string, { ok: true }>('calendar-events', (id) => client.api['calendar-events'][':id'].$delete({ param: { id } }));

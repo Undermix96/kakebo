@@ -13,6 +13,9 @@
   --color-ink: var(--k-ink);
   --color-ink-2: var(--k-ink-2);
   --color-rule: var(--k-rule);
+  /* Fainter rule (the day lines of the calendar) and the weekend tint */
+  --color-rule-2: var(--k-rule-2);
+  --color-wk: var(--k-wk);
   --color-verm: var(--k-verm);
   --color-seal-ink: var(--k-seal-ink);
   /* Inverted surfaces (primary buttons, selected chips) */
@@ -119,6 +122,8 @@
   --k-ink: #1e1a17;
   --k-ink-2: #5a514a;
   --k-rule: #d8cdb8;
+  --k-rule-2: #e5dccb;
+  --k-wk: rgba(30, 26, 23, 0.035);
   --k-verm: #c0341d;
   --k-seal-ink: #f7f1e6;
   --k-inv: #1e1a17;
@@ -149,6 +154,8 @@
     --k-ink: #eee6d6;
     --k-ink-2: #b5aa96;
     --k-rule: #3d362e;
+    --k-rule-2: #2d2823;
+    --k-wk: rgba(255, 255, 255, 0.025);
     --k-verm: #f0644a;
     --k-seal-ink: #1a1714;
     --k-inv: #eee6d6;
@@ -179,6 +186,8 @@
   --k-ink: #eee6d6;
   --k-ink-2: #b5aa96;
   --k-rule: #3d362e;
+  --k-rule-2: #2d2823;
+  --k-wk: rgba(255, 255, 255, 0.025);
   --k-verm: #f0644a;
   --k-seal-ink: #1a1714;
   --k-inv: #eee6d6;

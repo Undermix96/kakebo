@@ -6,26 +6,14 @@ import { HomePage } from './pages/Home.tsx';
 import { CycleDetailPage, HistoryPage } from './pages/History.tsx';
 import { PlanPage } from './pages/Plan.tsx';
 import { Soon } from './pages/Soon.tsx';
+import { CalendarPage } from './pages/Calendar.tsx';
+import { DebtsPage } from './pages/Debts.tsx';
 
 const PAGES: Record<string, [Section, () => React.JSX.Element]> = {
   '/': ['home', HomePage],
-  '/calendario': [
-    'cal',
-    () => (
-      <Soon title="Calendario" phase={5}>
-        L’anno in dodici colonne, con spese, scadenze, compleanni e debiti.
-      </Soon>
-    ),
-  ],
+  '/calendario': ['cal', CalendarPage],
   '/catalogo': ['cat', CatalogPage],
-  '/debiti': [
-    'deb',
-    () => (
-      <Soon title="Debiti" phase={5}>
-        I debiti da ricordare, con quelli scaduti in cima e “segna come saldato”.
-      </Soon>
-    ),
-  ],
+  '/debiti': ['deb', DebtsPage],
   '/storico': ['sto', HistoryPage],
   '/impostazioni': ['imp', SettingsPage],
 };

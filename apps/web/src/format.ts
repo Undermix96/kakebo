@@ -63,3 +63,23 @@ export const theDay = (d: ISODate) => (elides(d) ? 'l’' : 'il ') + formatDay(d
 export const fromDay = (d: ISODate) => (elides(d) ? 'dall’' : 'dal ') + formatDay(d);
 export const toDay = (d: ISODate) => (elides(d) ? 'all’' : 'al ') + formatDay(d);
 export const ofDay = (d: ISODate) => (elides(d) ? 'dell’' : 'del ') + formatDay(d);
+
+/** How long a debt has been waiting: "da 40 giorni", "da 5 mesi e mezzo", "da quasi 3 mesi", "scade tra 4 giorni". */
+export function debtAge(date: ISODate, today: ISODate): string {
+  const n = daysBetween(date, today);
+  if (n < -1) return `scade tra ${-n} giorni`;
+  if (n === -1) return 'scade domani';
+  if (n === 0) return 'scade oggi';
+  if (n === 1) return 'da ieri';
+  if (n < 45) return `da ${n} giorni`;
+  const MONTH = 30.44;
+  const months = Math.floor(n / MONTH);
+  const rest = n - months * MONTH;
+  if (months >= 12) {
+    const years = Math.floor(n / 365.25);
+    return years === 1 ? 'da più di un anno' : `da più di ${years} anni`;
+  }
+  if (rest >= 22) return months + 1 === 12 ? 'da quasi un anno' : `da quasi ${months + 1} mesi`;
+  if (rest >= 12) return `da ${months === 1 ? 'un mese' : `${months} mesi`} e mezzo`;
+  return months === 1 ? 'da un mese' : `da ${months} mesi`;
+}

@@ -4,7 +4,11 @@ import { z, type ZodType } from 'zod';
 import {
   accountCreateSchema,
   accountPatchSchema,
+  calendarEventCreateSchema,
+  calendarEventPatchSchema,
   catalogImportSchema,
+  debtCreateSchema,
+  debtPatchSchema,
   cycleConfirmSchema,
   cycleDraftSchema,
   historyImportSchema,
@@ -91,8 +95,27 @@ export function apiRoutes(store: CatalogStore, cycles: CycleStore) {
         c.json(cycles.setTransferDone(c.req.valid('param').id, c.req.valid('json').doneOn, c.get('identity').id)),
       )
 
+      // ---- reminders: debts and calendar dates (typed in by hand) ----
       .get('/debts', (c) => c.json(cycles.listDebts()))
+      .post('/debts', body(debtCreateSchema), (c) => c.json(cycles.createDebt(c.req.valid('json'), c.get('identity').id), 201))
+      .patch('/debts/:id', idParam, body(debtPatchSchema), (c) =>
+        c.json(cycles.updateDebt(c.req.valid('param').id, c.req.valid('json'), c.get('identity').id)),
+      )
+      .delete('/debts/:id', idParam, (c) => {
+        cycles.deleteDebt(c.req.valid('param').id);
+        return c.json({ ok: true });
+      })
       .get('/calendar-events', (c) => c.json(cycles.listCalendarEvents()))
+      .post('/calendar-events', body(calendarEventCreateSchema), (c) =>
+        c.json(cycles.createCalendarEvent(c.req.valid('json'), c.get('identity').id), 201),
+      )
+      .patch('/calendar-events/:id', idParam, body(calendarEventPatchSchema), (c) =>
+        c.json(cycles.updateCalendarEvent(c.req.valid('param').id, c.req.valid('json'), c.get('identity').id)),
+      )
+      .delete('/calendar-events/:id', idParam, (c) => {
+        cycles.deleteCalendarEvent(c.req.valid('param').id);
+        return c.json({ ok: true });
+      })
 
       // Past cycles, debts and dates from the old spreadsheet (tools/import-xlsx).
       .post('/import/history', body(historyImportSchema), (c) =>

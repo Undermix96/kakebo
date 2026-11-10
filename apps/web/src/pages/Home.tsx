@@ -251,7 +251,12 @@ function Debts({ debts, compact }: { debts: Debt[]; compact?: boolean }) {
   const total = debts.reduce((s, d) => s + d.amountCents, 0);
   return (
     <div className={compact ? 'mt-[30px]' : 'mt-[34px]'}>
-      <h2 className="m-0 font-display text-[22px] font-bold">Conti in sospeso</h2>
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="m-0 font-display text-[22px] font-bold">Conti in sospeso</h2>
+        <Link href="/debiti" className="text-sm text-ink-2">
+          i debiti
+        </Link>
+      </div>
       <div className={cx('relative mt-2.5 rounded-[2px] border border-rule px-[18px] pt-4 pb-3.5', compact ? 'bg-paper' : 'bg-page')}>
         <span
           aria-hidden="true"
