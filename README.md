@@ -72,6 +72,10 @@ Con **Portainer** non serve il file `.env`: le stesse variabili (vedi `docker/.e
 
 L'app è pubblicata su `kakebo.undermix.it`. `cloudflared` gira altrove nella LAN: nel tunnel l'hostname punta a `http://<IP-LAN-dell-host-Docker>:8080` (porta e interfaccia configurabili con `KAKEBO_PORT` e `KAKEBO_BIND`). Anche dalla LAN ogni richiesta, tranne `/healthz`, richiede il JWT di Access.
 
+### Backup
+
+I dati stanno in un database SQLite nel volume `kakebo-data` (`/data` nel container). Ogni notte l'app ne scrive una copia coerente (`VACUUM INTO`) in `/data/backup/kakebo-AAAA-MM-GG.db` e tiene le ultime 7; fa la stessa copia anche prima di ogni migrazione. È quella cartella che va salvata con il proprio strumento di backup dei volumi (es. Backrest/restic): il file vivo, in modalità WAL, non va copiato a caldo. Per ripristinare: fermare il container, rimettere la copia come `/data/kakebo.db` (eliminando eventuali `-wal`/`-shm`) e riavviare. *(Dalla fase 3, con il database.)*
+
 ## Licenza
 
 [MIT](LICENSE)
