@@ -15,6 +15,8 @@ packages/core/   motore di calcolo e utilità condivise (TypeScript puro, Vitest
 apps/api/        Hono su Node: API REST, verifica del JWT di Cloudflare Access, serve il web
 apps/web/        React + Vite + TanStack Query + Tailwind (design "Il quaderno")
 docker/          Dockerfile, compose.yaml, .env.example
+.githooks/       hook di pre-commit (file privati e segreti)
+.github/         CI, release manuale dell'immagine, Dependabot
 ```
 
 ## Sviluppo
@@ -40,9 +42,9 @@ pnpm typecheck && pnpm test && pnpm build
 ## Sicurezza
 
 - Ogni richiesta (tranne `/healthz`) deve portare un JWT di Cloudflare Access valido (`Cf-Access-Jwt-Assertion` o cookie `CF_Authorization`): firma con le chiavi del team, `iss`, `aud` (web o app native), scadenza. Altrimenti **403**.
-- Browser: applicazione Access con policy sulle email. App native: applicazione Access con *Service Auth* (un service token per dispositivo).
+- Browser (`kakebo.undermix.it`): applicazione Access con policy sulle email. App native (`kakebo-api.undermix.it`, più avanti): applicazione Access con *Service Auth* (un service token per dispositivo).
 - Container: utente non root, filesystem in sola lettura, unico volume scrivibile `/data`, una sola porta esposta in LAN verso `cloudflared`.
-- Header di sicurezza e CSP restrittiva. Scansione dei segreti (gitleaks) in CI.
+- Header di sicurezza e CSP restrittiva. Scansione dei segreti (gitleaks) prima di ogni commit e in CI; dipendenze aggiornate con Dependabot.
 
 ## Deploy
 
