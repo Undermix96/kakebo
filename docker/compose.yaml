@@ -23,6 +23,9 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    environment:
+      CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN}
+      CF_ACCESS_AUD_WEB: ${CF_ACCESS_AUD_WEB}
 
 volumes:
   kakebo-data:
