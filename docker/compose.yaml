@@ -1,5 +1,8 @@
 # kakebo in the homelab.
-# No published ports: the container is reached only by cloudflared over a shared Docker network.
+# cloudflared runs elsewhere on the LAN and reaches the container through a published port:
+# in the tunnel config point kakebo.undermix.it to http://<docker-host-lan-ip>:8080
+# Every request except /healthz still requires a valid Cloudflare Access JWT (403 otherwise),
+# so the LAN port does not bypass authentication.
 # Copy .env.example to .env (same folder) and fill in the Cloudflare Access values.
 name: kakebo
 
@@ -8,6 +11,9 @@ services:
     image: ghcr.io/undermix96/kakebo:${KAKEBO_TAG:-latest}
     restart: unless-stopped
     env_file: .env
+    ports:
+      # Bind to the LAN interface only if you can, e.g. KAKEBO_BIND=192.168.1.10
+      - "${KAKEBO_BIND:-0.0.0.0}:${KAKEBO_PORT:-8080}:8080"
     read_only: true
     tmpfs:
       - /tmp
@@ -17,15 +23,6 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
-    networks:
-      - cloudflared
 
 volumes:
   kakebo-data:
-
-networks:
-  # Network shared with the existing cloudflared container (name to be confirmed).
-  # In the tunnel config point the hostnames to http://kakebo:8080
-  cloudflared:
-    external: true
-    name: ${CLOUDFLARED_NETWORK:-cloudflared}

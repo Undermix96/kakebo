@@ -39,7 +39,7 @@ pnpm typecheck && pnpm test && pnpm build
 
 - Ogni richiesta (tranne `/healthz`) deve portare un JWT di Cloudflare Access valido (`Cf-Access-Jwt-Assertion` o cookie `CF_Authorization`): firma con le chiavi del team, `iss`, `aud` (web o app native), scadenza. Altrimenti **403**.
 - Browser: applicazione Access con policy sulle email. App native: applicazione Access con *Service Auth* (un service token per dispositivo).
-- Container: utente non root, filesystem in sola lettura, unico volume scrivibile `/data`, nessuna porta pubblicata.
+- Container: utente non root, filesystem in sola lettura, unico volume scrivibile `/data`, una sola porta esposta in LAN verso `cloudflared`.
 - Header di sicurezza e CSP restrittiva. Scansione dei segreti (gitleaks) in CI.
 
 ## Deploy
@@ -52,4 +52,8 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Nel tunnel `cloudflared` gli hostname puntano a `http://kakebo:8080` sulla rete Docker condivisa (`CLOUDFLARED_NETWORK`, default `cloudflared`).
+L'app è pubblicata su `kakebo.undermix.it`. `cloudflared` gira altrove nella LAN: nel tunnel l'hostname punta a `http://<IP-LAN-dell-host-Docker>:8080` (porta e interfaccia configurabili con `KAKEBO_PORT` e `KAKEBO_BIND`). Anche dalla LAN ogni richiesta, tranne `/healthz`, richiede il JWT di Access.
+
+## Licenza
+
+[MIT](LICENSE)
