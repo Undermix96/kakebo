@@ -1,0 +1,25 @@
+#!/bin/sh
+# Blocks the commit when it would publish private data or secrets (the repo is public).
+# Enabled automatically by `pnpm install` (git config core.hooksPath .githooks).
+
+# 1. Files that must never be committed, even if someone uses `git add -f`.
+forbidden=$(git diff --cached --name-only --diff-filter=ACMR | grep -E \
+  '(^|/)private/|(^|/)HANDOFF\.md$|(^|/)PROMPT-CLAUDE-DESIGN\.md$|\.xls[xm]?$|(^|/)\.env(\..+)?$' \
+  | grep -vE '(^|/)\.env\.example$')
+if [ -n "$forbidden" ]; then
+  echo "pre-commit: commit blocked, these files must never be committed (public repo):" >&2
+  echo "$forbidden" | sed 's/^/  - /' >&2
+  echo "Unstage them with: git restore --staged <file>" >&2
+  exit 1
+fi
+
+# 2. Secret scan of the staged changes.
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "pre-commit: commit blocked, gitleaks is not installed." >&2
+  echo "Install it: winget install Gitleaks.Gitleaks  |  brew install gitleaks  |  https://github.com/gitleaks/gitleaks" >&2
+  exit 1
+fi
+if ! gitleaks git --pre-commit --staged --redact --no-banner; then
+  echo "pre-commit: commit blocked, gitleaks found possible secrets in the staged changes (see above)." >&2
+  exit 1
+fi

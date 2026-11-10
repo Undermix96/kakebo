@@ -29,6 +29,8 @@ pnpm install
 DEV_FAKE_IDENTITY=dev@example.com pnpm dev
 ```
 
+`pnpm install` attiva anche l'hook di pre-commit (`.githooks/pre-commit`): blocca il commit se in stage ci sono file privati (`private/`, `HANDOFF.md`, Excel, `.env`) o se [gitleaks](https://github.com/gitleaks/gitleaks) trova segreti. Serve gitleaks installato (`winget install Gitleaks.Gitleaks` o `brew install gitleaks`).
+
 Il web gira su http://localhost:5173 e fa da proxy per `/api` verso l'API su `:8080`. `DEV_FAKE_IDENTITY` sostituisce Cloudflare Access **solo in sviluppo**: con `NODE_ENV=production` il server si rifiuta di partire.
 
 ```bash
@@ -51,6 +53,8 @@ cd docker
 cp .env.example .env
 docker compose up -d
 ```
+
+Con **Portainer** non serve il file `.env`: le stesse variabili (vedi `docker/.env.example`) vanno nella sezione *Environment variables* dello stack.
 
 L'app è pubblicata su `kakebo.undermix.it`. `cloudflared` gira altrove nella LAN: nel tunnel l'hostname punta a `http://<IP-LAN-dell-host-Docker>:8080` (porta e interfaccia configurabili con `KAKEBO_PORT` e `KAKEBO_BIND`). Anche dalla LAN ogni richiesta, tranne `/healthz`, richiede il JWT di Access.
 

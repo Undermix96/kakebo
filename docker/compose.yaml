@@ -3,14 +3,16 @@
 # in the tunnel config point kakebo.undermix.it to http://<docker-host-lan-ip>:8080
 # Every request except /healthz still requires a valid Cloudflare Access JWT (403 otherwise),
 # so the LAN port does not bypass authentication.
-# Copy .env.example to .env (same folder) and fill in the Cloudflare Access values.
+# Configuration comes from variables interpolated into `environment:` below:
+# - Portainer: set them in the stack's "Environment variables" section;
+# - docker compose CLI: copy .env.example to .env in this folder and fill it in.
+# See .env.example for the meaning of each variable.
 name: kakebo
 
 services:
   kakebo:
     image: ghcr.io/undermix96/kakebo:${KAKEBO_TAG:-latest}
     restart: unless-stopped
-    #env_file: .env
     ports:
       # Bind to the LAN interface only if you can, e.g. KAKEBO_BIND=192.168.1.10
       - "${KAKEBO_BIND:-0.0.0.0}:${KAKEBO_PORT:-8080}:8080"
@@ -26,6 +28,8 @@ services:
     environment:
       CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN}
       CF_ACCESS_AUD_WEB: ${CF_ACCESS_AUD_WEB}
+      # Native apps (kakebo-api.undermix.it, Service Auth): empty until phase 6
+      CF_ACCESS_AUD_API: ${CF_ACCESS_AUD_API:-}
 
 volumes:
   kakebo-data:
