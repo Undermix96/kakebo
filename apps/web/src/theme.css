@@ -1,0 +1,90 @@
+/*
+ * kakebo design tokens — direction "Il quaderno" (Claude Design).
+ * Single source of truth for colors, type and radii: components use these, never raw hex.
+ */
+@import 'tailwindcss';
+
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+@theme {
+  /* Paper & ink */
+  --color-paper: var(--k-paper);
+  --color-page: var(--k-page);
+  --color-ink: var(--k-ink);
+  --color-ink-2: var(--k-ink-2);
+  --color-rule: var(--k-rule);
+  --color-verm: var(--k-verm);
+  --color-seal-ink: var(--k-seal-ink);
+
+  /* The four accounts (each also has a shape: square, diamond, circle, bar) */
+  --color-webank: var(--k-webank);
+  --color-unicredit: var(--k-unicredit);
+  --color-ing: var(--k-ing);
+  --color-revolut: var(--k-revolut);
+
+  /* Type */
+  --font-display: 'Shippori Mincho B1', 'Hiragino Mincho ProN', serif;
+  --font-sans: 'Zen Kaku Gothic New', 'Hiragino Sans', system-ui, sans-serif;
+  --font-mono: 'Spline Sans Mono', ui-monospace, monospace;
+  --font-hand: 'Caveat Brush', cursive;
+
+  --radius-seal: 5px;
+  --radius-field: 3px;
+}
+
+:root {
+  --k-paper: #f2ecdf;
+  --k-page: #f7f2e8;
+  --k-ink: #1e1a17;
+  --k-ink-2: #5a514a;
+  --k-rule: #d8cdb8;
+  --k-verm: #c0341d;
+  --k-seal-ink: #f7f1e6;
+  --k-webank: #2b4a6f;
+  --k-unicredit: #6a4778;
+  --k-ing: #8a5a0f;
+  --k-revolut: #4f6b2c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --k-paper: #1a1714;
+    --k-page: #221e1a;
+    --k-ink: #eee6d6;
+    --k-ink-2: #b5aa96;
+    --k-rule: #3d362e;
+    --k-verm: #f0644a;
+    --k-seal-ink: #1a1714;
+  }
+}
+
+:root[data-theme='dark'] {
+  --k-paper: #1a1714;
+  --k-page: #221e1a;
+  --k-ink: #eee6d6;
+  --k-ink-2: #b5aa96;
+  --k-rule: #3d362e;
+  --k-verm: #f0644a;
+  --k-seal-ink: #1a1714;
+}
+
+@layer base {
+  html {
+    background: var(--k-paper);
+    color: var(--k-ink);
+    font-family: var(--font-sans);
+    font-variant-numeric: tabular-nums;
+  }
+  :focus-visible {
+    outline: 3px solid var(--k-verm);
+    outline-offset: 3px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation: none !important;
+      transition: none !important;
+    }
+  }
+}

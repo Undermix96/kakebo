@@ -1,0 +1,34 @@
+# --- Private data: NEVER commit (the repository is public) ---
+private/
+HANDOFF.md
+PROMPT-CLAUDE-DESIGN.md
+*.xlsx
+*.xls
+*.xlsm
+
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Dependencies and build output ---
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.vite/
+
+# --- Local data ---
+data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+
+# --- Editors / OS ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.claude/settings.local.json

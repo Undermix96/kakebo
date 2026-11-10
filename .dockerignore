@@ -1,0 +1,14 @@
+**/node_modules
+**/dist
+**/coverage
+.git
+.github
+private
+HANDOFF.md
+PROMPT-CLAUDE-DESIGN.md
+*.xlsx
+*.xls
+.env
+.env.*
+docker/.env
+data

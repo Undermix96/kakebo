@@ -1,0 +1,7 @@
+packages:
+  - packages/*
+  - apps/*
+
+# Dependencies allowed to run install scripts (everything else is blocked).
+allowBuilds:
+  esbuild: true
