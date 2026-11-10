@@ -19,6 +19,18 @@ docker/          Dockerfile, compose.yaml, .env.example
 .github/         CI, release manuale dell'immagine, Dependabot
 ```
 
+## Il motore di calcolo
+
+`packages/core` è codice puro, senza I/O, usato da API, web e (poi) app native.
+
+- **Ciclo**: va fino al 10 del mese successivo incluso. Le spese contano per data, le entrate per ciclo: lo stipendio del mese dopo non si conta mai.
+- **Saldi con data**: ciò che è datato prima del saldo si considera già compreso (si può smentire); il resto entra nella proiezione.
+- **Bonifici suggeriti**: copertura cronologica, con il minor numero di bonifici, senza mai lasciare la fonte scoperta per le sue spese future; ogni bonifico ha "dal" (primo giorno possibile) ed "entro" (il giorno prima della spesa). Margini per conto e arrotondamento configurabili.
+- **Avvisi**: se il totale dei conti va sotto zero l'app lo dice, invece di proporre bonifici impossibili. Le voci senza importo vengono segnalate, mai inventate.
+- Importi sempre in centesimi interi, date come stringhe `AAAA-MM-GG`.
+
+I test (Vitest + fast-check) controllano un ciclo d'esempio con dati inventati e gli invarianti su cicli casuali; il caso reale gira solo in locale, da `private/fixtures/`.
+
 ## Sviluppo
 
 Requisiti: Node 26 e pnpm 12.
