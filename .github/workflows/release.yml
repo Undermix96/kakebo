@@ -1,0 +1,113 @@
+# Manual build of the Docker image + GitHub release.
+# Tag format: YYYY.MM.DD-b<N>  (e.g. 2026.11.10-b1). N is a global build counter:
+# one more than the highest existing build tag. The release notes list the commits
+# since the previous build tag.
+name: Build image and release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write # create tag + release
+  packages: write # push to GHCR
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # full history and tags for the changelog
+
+      - name: Compute version and changelog
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+
+          pattern='^[0-9]{4}\.[0-9]{2}\.[0-9]{2}-b[0-9]+$'
+          prev_tag="$(git tag --list | grep -E "$pattern" | awk -F'-b' '{print $2" "$0}' | sort -n | tail -n1 | cut -d' ' -f2 || true)"
+          if [ -n "$prev_tag" ]; then
+            last_n="${prev_tag##*-b}"
+          else
+            last_n=0
+          fi
+          n=$((last_n + 1))
+          tag="$(TZ=Europe/Rome date +%Y.%m.%d)-b${n}"
+
+          if [ -n "$prev_tag" ]; then
+            range="${prev_tag}..HEAD"
+            since="dalla build precedente [\`${prev_tag}\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${prev_tag})"
+          else
+            range="HEAD"
+            since="dall'inizio del progetto (prima build)"
+          fi
+
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/kakebo"
+          commits="$(git log "$range" --no-merges --pretty=format:"- %s ([\`%h\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/%H)) — %an")"
+          [ -n "$commits" ] || commits="- Nessun nuovo commit: stessa revisione della build precedente."
+
+          {
+            echo "## Cosa è cambiato"
+            echo
+            echo "Commit ${since}:"
+            echo
+            echo "$commits"
+            echo
+            echo "## Immagine Docker"
+            echo
+            echo '```'
+            echo "docker pull ${image}:${tag}"
+            echo '```'
+            if [ -n "$prev_tag" ]; then
+              echo
+              echo "Confronto completo: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/${prev_tag}...${tag}"
+            fi
+          } > release-notes.md
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "Build: $tag (previous: ${prev_tag:-none})"
+          cat release-notes.md >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: true
+          build-args: |
+            VERSION=${{ steps.version.outputs.tag }}
+            REVISION=${{ github.sha }}
+          tags: |
+            ${{ steps.version.outputs.image }}:${{ steps.version.outputs.tag }}
+            ${{ steps.version.outputs.image }}:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.version.outputs.tag }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --target "${{ github.sha }}" \
+            --title "kakebo ${{ steps.version.outputs.tag }}" \
+            --notes-file release-notes.md \
+            --latest
