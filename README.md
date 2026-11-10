@@ -15,6 +15,7 @@ packages/core/   motore di calcolo, tipi e schemi Zod condivisi (TypeScript puro
 packages/db/     SQLite + Drizzle: schema, migrazioni, catalogo, backup notturno
 apps/api/        Hono su Node: API REST, verifica del JWT di Cloudflare Access, serve il web
 apps/web/        React + Vite + TanStack Query + Tailwind (design "Il quaderno")
+tools/import-xlsx/  import dello storico dal vecchio Excel (legge e scrive solo in private/)
 docker/          Dockerfile, compose.yaml, .env.example
 .githooks/       hook di pre-commit (file privati e segreti)
 .github/         CI, release manuale dell'immagine, Dependabot
@@ -47,6 +48,25 @@ API (tutte sotto `/api`, JSON, 422 con un messaggio in italiano se i dati non va
 | POST | `/import/catalog` | primo caricamento da un file JSON (solo a quaderno vuoto) |
 
 Il formato del file del catalogo è in `packages/db/fixtures/catalog.example.json` (dati inventati). Si carica dall'app: *Impostazioni* → *Carica il catalogo da un file*, oppure dalla pagina iniziale vuota; prima di scrivere l'app mostra un riepilogo (conti, voci, voci senza importo o senza giorno).
+
+## La programmazione
+
+Il rito del mese è in `/programmazione`, in quattro passi: **saldi** (con la data di ciascuno) → **già successo?** (le voci datate prima del saldo, più i movimenti aggiunti a mano) → **voci del ciclo** (importi proposti, sporadiche, "non questo mese") → **risultato** (bonifici da timbrare 済, proiezione giorno per giorno con e senza bonifici, registro, resto). Ogni passo salva una bozza sul server, così si può riprendere da un altro dispositivo. Alla conferma gli importi usati per le voci "proponi l'ultimo" diventano la proposta del mese dopo.
+
+La proiezione non è salvata: si ricalcola sempre col motore dai saldi, dalle voci e dai bonifici del ciclo. *Oggi* mostra il ciclo in corso (bonifici da timbrare, prossimi 14 giorni, conti, debiti scaduti); *Storico* i cicli confermati, in sola lettura.
+
+| Metodo | Percorso | |
+| --- | --- | --- |
+| GET | `/cycles`, `/cycles/:mese` | cicli (il più recente prima) con saldi, voci e bonifici |
+| PUT | `/cycles/:mese` | salva la bozza dei passi (saldi e voci) |
+| POST | `/cycles/:mese/confirm` | conferma con i bonifici; i timbri già dati restano |
+| POST | `/cycles/:mese/reopen` | riapre un ciclo confermato (i bonifici non timbrati si ricalcolano) |
+| DELETE | `/cycles/:mese` | scarta una bozza |
+| PATCH | `/transfers/:id` | timbra un bonifico (`doneOn`) o toglie il timbro |
+| GET | `/debts`, `/calendar-events` | debiti e date del calendario |
+| POST | `/import/history` | storico dal vecchio Excel (tutto o niente, mesi non ancora presenti) |
+
+Lo storico si prepara con `pnpm --filter @kakebo/import-xlsx start` (vedi `tools/import-xlsx/README.md`) e si carica da *Impostazioni* → *Storico*, dopo aver letto il report di riconciliazione.
 
 ## Sviluppo
 

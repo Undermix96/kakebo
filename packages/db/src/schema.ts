@@ -78,6 +78,7 @@ export const cycles = sqliteTable(
     status: text('status', { enum: ['draft', 'confirmed'] }).notNull().default('draft'),
     notes: text('notes'),
     imported: integer('imported', { mode: 'boolean' }).notNull().default(false),
+    confirmedAt: text('confirmed_at'),
     ...audit,
   },
   (t) => [check('cycles_status', sql`${t.status} in ('draft', 'confirmed')`)],
@@ -102,7 +103,8 @@ export const cycleBalances = sqliteTable(
 export const cycleEntries = sqliteTable(
   'cycle_entries',
   {
-    id: text('id').primaryKey(),
+    // Unique within its cycle (the same catalog occurrence can sit in two cycles).
+    id: text('id').notNull(),
     cycleId: text('cycle_id')
       .notNull()
       .references(() => cycles.id, { onDelete: 'cascade' }),
@@ -119,7 +121,7 @@ export const cycleEntries = sqliteTable(
     ...audit,
   },
   (t) => [
-    index('cycle_entries_cycle').on(t.cycleId),
+    primaryKey({ columns: [t.cycleId, t.id] }),
     check('cycle_entries_amount', sql`${t.amountCents} is null or ${t.amountCents} >= 0`),
   ],
 );
@@ -138,8 +140,11 @@ export const cycleTransfers = sqliteTable(
       .notNull()
       .references(() => accounts.id),
     amountCents: integer('amount_cents').notNull(),
+    /** Earliest day the source has the money. */
+    date: text('date').notNull(),
     dueDate: text('due_date').notNull(),
     doneOn: text('done_on'),
+    coversEntryIds: text('covers_json', { mode: 'json' }).$type<string[]>().notNull().default(sql`'[]'`),
     ...audit,
   },
   (t) => [

@@ -19,6 +19,11 @@
   --color-inv: var(--k-inv);
   --color-inv-ink: var(--k-inv-ink);
   --color-hl: var(--k-hl);
+  /* Soft vermilion behind stamps and transfers still to do */
+  --color-verm-bg: var(--k-verm-bg);
+  /* Day cells of the projection at zero (dot and outline) */
+  --color-zero: var(--k-zero);
+  --color-cell-zero: var(--k-cell-zero);
 
   /*
    * Account palette: each account stores one of these keys (plus a shape: square,
@@ -46,6 +51,43 @@
   --font-hand: 'Caveat Brush', cursive;
 
   --animate-open: open 0.22s ease both;
+  /* The 済 stamp falls, presses and settles askew */
+  --animate-hanko: hanko 0.42s cubic-bezier(0.2, 1.5, 0.4, 1) both;
+  /* Turning the page between the steps */
+  --animate-turn: turn 0.32s ease both;
+  --animate-ink: ink 0.4s ease both;
+  @keyframes hanko {
+    0% {
+      transform: scale(1.7) rotate(-4deg);
+      opacity: 0;
+    }
+    55% {
+      transform: scale(0.92) rotate(-13deg);
+      opacity: 1;
+    }
+    100% {
+      transform: scale(1) rotate(-12deg);
+      opacity: 0.92;
+    }
+  }
+  @keyframes turn {
+    from {
+      opacity: 0;
+      transform: translateX(14px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes ink {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
   @keyframes open {
     from {
       opacity: 0;
@@ -59,6 +101,8 @@
 
   --radius-seal: 5px;
   --radius-field: 3px;
+  /* The fold between the two pages of the notebook */
+  --shadow-fold: var(--k-fold);
 }
 
 :root {
@@ -80,6 +124,10 @@
   --k-inv: #1e1a17;
   --k-inv-ink: #f7f2e8;
   --k-hl: rgba(214, 170, 60, 0.22);
+  --k-verm-bg: rgba(192, 52, 29, 0.07);
+  --k-zero: #8c806c;
+  --k-cell-zero: #cdbfa6;
+  --k-fold: inset 18px 0 22px -18px rgba(60, 40, 20, 0.22);
   --k-acc-indaco: #2b4a6f;
   --k-acc-petrolio: #1f5f5b;
   --k-acc-notte: #3a3a6a;
@@ -106,6 +154,10 @@
     --k-inv: #eee6d6;
     --k-inv-ink: #1a1714;
     --k-hl: rgba(224, 176, 98, 0.16);
+    --k-verm-bg: rgba(240, 100, 74, 0.12);
+    --k-zero: #7a6f5e;
+    --k-cell-zero: #4a4238;
+    --k-fold: inset 18px 0 22px -18px rgba(0, 0, 0, 0.55);
     --k-acc-indaco: #8fb0da;
     --k-acc-petrolio: #7cc3bc;
     --k-acc-notte: #a5a5da;
@@ -132,6 +184,10 @@
   --k-inv: #eee6d6;
   --k-inv-ink: #1a1714;
   --k-hl: rgba(224, 176, 98, 0.16);
+  --k-verm-bg: rgba(240, 100, 74, 0.12);
+  --k-zero: #7a6f5e;
+  --k-cell-zero: #4a4238;
+  --k-fold: inset 18px 0 22px -18px rgba(0, 0, 0, 0.55);
   --k-acc-indaco: #8fb0da;
   --k-acc-petrolio: #7cc3bc;
   --k-acc-notte: #a5a5da;

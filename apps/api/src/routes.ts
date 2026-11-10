@@ -5,11 +5,16 @@ import {
   accountCreateSchema,
   accountPatchSchema,
   catalogImportSchema,
+  cycleConfirmSchema,
+  cycleDraftSchema,
+  historyImportSchema,
   itemCreateSchema,
+  transferPatchSchema,
+  yearMonth,
   itemPatchSchema,
   settingsPatchSchema,
 } from '@kakebo/core';
-import type { CatalogStore } from '@kakebo/db';
+import type { CatalogStore, CycleStore } from '@kakebo/db';
 import type { AccessEnv } from './access.ts';
 
 /** JSON body validation; errors become 422 with the first message in Italian. */
@@ -23,9 +28,12 @@ const body = <T extends ZodType>(schema: T) =>
   });
 
 const idParam = zValidator('param', z.object({ id: z.string().min(1).max(64) }));
+const monthParam = zValidator('param', z.object({ month: yearMonth }), (result, c) => {
+  if (!result.success) return c.json({ error: 'mese non valido (AAAA-MM)' }, 422);
+});
 
 /** The REST API under /api. Chained so that the Hono client can infer its types. */
-export function apiRoutes(store: CatalogStore) {
+export function apiRoutes(store: CatalogStore, cycles: CycleStore) {
   return (
     new Hono<AccessEnv>()
       .get('/me', (c) => c.json(c.get('identity')))
@@ -58,6 +66,37 @@ export function apiRoutes(store: CatalogStore) {
       // First load of the catalog from a JSON file (only into an empty database).
       .post('/import/catalog', body(catalogImportSchema), (c) =>
         c.json(store.importCatalog(c.req.valid('json'), c.get('identity').id), 201),
+      )
+
+      // ---- cycles: the monthly planning ----
+      // All cycles, most recent first (a handful per year: no paging needed).
+      .get('/cycles', (c) => c.json(cycles.listCycles()))
+      .get('/cycles/:month', monthParam, (c) => c.json(cycles.getCycle(c.req.valid('param').month)))
+      // Save the four steps as a draft (creates the cycle the first time).
+      .put('/cycles/:month', monthParam, body(cycleDraftSchema), (c) =>
+        c.json(cycles.saveDraft(c.req.valid('param').month, c.req.valid('json'), c.get('identity').id)),
+      )
+      .post('/cycles/:month/confirm', monthParam, body(cycleConfirmSchema), (c) =>
+        c.json(cycles.confirm(c.req.valid('param').month, c.req.valid('json'), c.get('identity').id)),
+      )
+      .post('/cycles/:month/reopen', monthParam, (c) =>
+        c.json(cycles.reopen(c.req.valid('param').month, c.get('identity').id)),
+      )
+      .delete('/cycles/:month', monthParam, (c) => {
+        cycles.deleteDraft(c.req.valid('param').month);
+        return c.json({ ok: true });
+      })
+      // Stamp a transfer as done ("済"), or remove the stamp.
+      .patch('/transfers/:id', idParam, body(transferPatchSchema), (c) =>
+        c.json(cycles.setTransferDone(c.req.valid('param').id, c.req.valid('json').doneOn, c.get('identity').id)),
+      )
+
+      .get('/debts', (c) => c.json(cycles.listDebts()))
+      .get('/calendar-events', (c) => c.json(cycles.listCalendarEvents()))
+
+      // Past cycles, debts and dates from the old spreadsheet (tools/import-xlsx).
+      .post('/import/history', body(historyImportSchema), (c) =>
+        c.json(cycles.importHistory(c.req.valid('json'), c.get('identity').id), 201),
       )
   );
 }

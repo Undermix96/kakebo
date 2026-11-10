@@ -79,6 +79,7 @@ export const transferSchema = z
 export const planOptionsSchema = z.object({
   roundingCents: positiveCents.optional(),
   leadDays: z.number().int().min(0).max(10).optional(),
+  suggest: z.boolean().optional(),
 });
 
 // Compile-time checks: the schemas produce exactly the engine's types.

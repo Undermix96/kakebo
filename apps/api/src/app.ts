@@ -3,14 +3,14 @@ import { secureHeaders } from 'hono/secure-headers';
 import { serveStatic } from '@hono/node-server/serve-static';
 import type { JWTVerifyGetKey } from 'jose';
 import { ZodError } from 'zod';
-import { StoreError, type CatalogStore } from '@kakebo/db';
+import { StoreError, type CatalogStore, type CycleStore } from '@kakebo/db';
 import { cloudflareAccess, fakeIdentity, type AccessEnv } from './access.ts';
 import type { Config } from './config.ts';
 import { apiRoutes } from './routes.ts';
 
 const STATUS = { not_found: 404, conflict: 409, invalid: 422 } as const;
 
-export function createApp(config: Config, deps: { store: CatalogStore; jwks?: JWTVerifyGetKey }) {
+export function createApp(config: Config, deps: { store: CatalogStore; cycles: CycleStore; jwks?: JWTVerifyGetKey }) {
   const app = new Hono<AccessEnv>();
 
   app.use(
@@ -41,7 +41,7 @@ export function createApp(config: Config, deps: { store: CatalogStore; jwks?: JW
     app.use('*', fakeIdentity(config.devFakeIdentity));
   }
 
-  const typed = app.route('/api', apiRoutes(deps.store));
+  const typed = app.route('/api', apiRoutes(deps.store, deps.cycles));
   app.all('/api/*', (c) => c.json({ error: 'not found' }, 404));
 
   app.onError((err, c) => {

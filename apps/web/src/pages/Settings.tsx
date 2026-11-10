@@ -15,6 +15,7 @@ import { useCatalog, useCreateAccount, useUpdateAccount, useUpdateSettings } fro
 import { AccountGlyph, Button, ErrorNote, Field, Loading, PageTitle, Segmented, accountColor, cx, inputClass } from '../ui/kit.tsx';
 import { useTheme, type ThemeChoice } from '../theme.ts';
 import { ImportCatalog } from './EmptyNotebook.tsx';
+import { ImportHistory } from './ImportHistory.tsx';
 
 const smallInput = 'h-10 w-14 border-0 border-b-[1.5px] border-ink bg-transparent text-center font-mono text-[17px] text-ink';
 
@@ -43,6 +44,14 @@ export function SettingsPage() {
           )}
           <RoundingSection settings={catalog.data.settings} />
           <CycleSection settings={catalog.data.settings} />
+          {catalog.data.accounts.length > 0 && (
+            <section aria-labelledby="storico" className="mt-9">
+              <SectionTitle id="storico">Storico</SectionTitle>
+              <div className="mt-4">
+                <ImportHistory accounts={catalog.data.accounts} />
+              </div>
+            </section>
+          )}
         </>
       )}
       <ThemeSection />

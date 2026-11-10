@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { serve } from '@hono/node-server';
-import { CatalogStore, openDatabase, scheduleNightlySnapshots } from '@kakebo/db';
+import { CatalogStore, CycleStore, openDatabase, scheduleNightlySnapshots } from '@kakebo/db';
 import { loadConfig } from './config.ts';
 import { createApp } from './app.ts';
 
@@ -14,7 +14,7 @@ const { db, sqlite, preMigrationBackup } = openDatabase({
 if (preMigrationBackup) console.log(`database: snapshot before migrating: ${path.basename(preMigrationBackup)}`);
 const stopBackups = scheduleNightlySnapshots(sqlite, backupDir);
 
-const app = createApp(config, { store: new CatalogStore(db) });
+const app = createApp(config, { store: new CatalogStore(db), cycles: new CycleStore(db) });
 
 const server = serve({ fetch: app.fetch, port: config.port, hostname: '0.0.0.0' }, (info) => {
   const mode = config.access ? 'Cloudflare Access' : `DEV identity "${config.devFakeIdentity}"`;

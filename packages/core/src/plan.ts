@@ -10,6 +10,11 @@ export interface PlanOptions {
    * When the source only has the money later, the engine falls back to the same day.
    */
   leadDays?: number;
+  /**
+   * false = only project the fixed transfers, suggest nothing (a confirmed cycle,
+   * whose transfers are already decided). Default true.
+   */
+  suggest?: boolean;
 }
 
 export interface PlanInput {
@@ -317,7 +322,7 @@ export function planCycle(input: PlanInput): PlanResult {
     return Math.max(0, amount);
   };
 
-  for (let i = todayIdx; i < days; i++) {
+  for (let i = todayIdx; i < days && input.options?.suggest !== false; i++) {
     const windows = [...new Set([Math.max(todayIdx, i - lead), i])];
     for (const dest of ids) {
       if (series(dest)[i]! >= m(dest)) continue;

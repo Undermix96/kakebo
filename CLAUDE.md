@@ -20,5 +20,6 @@
 - Sviluppo: `DEV_FAKE_IDENTITY=dev@example.com pnpm dev` (DB in `apps/api/data/`, ignorato da git)
 - Nuova migrazione dopo aver cambiato `packages/db/src/schema.ts`: `pnpm --filter @kakebo/db generate` (committare la cartella `migrations/`).
 - Catalogo reale (privato): `private/fixtures/catalog-2026-11.json`, da caricare dall'app (Impostazioni → Carica il catalogo da un file). Esempio inventato: `packages/db/fixtures/catalog.example.json`.
+- Storico dal vecchio Excel (privato): `pnpm --filter @kakebo/import-xlsx start` legge `private/kakebo.xlsx` e scrive `private/history.json` + `private/history-report.md`; il file si carica dall'app (Impostazioni → Storico). Vedi `tools/import-xlsx/README.md`.
 - Release: workflow manuale `.github/workflows/release.yml` (tag `AAAA.MM.GG-b<N>`): `gh workflow run release.yml --ref main`.
 - Deploy: stack Portainer con `docker/compose.yaml`, variabili nello stack (vedi `docker/.env.example`). Web su `kakebo.undermix.it`, API nativa (fase 6) su `kakebo-api.undermix.it`.

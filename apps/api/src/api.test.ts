@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { testClient } from 'hono/testing';
-import { CatalogStore, openDatabase } from '@kakebo/db';
+import { CatalogStore, CycleStore, openDatabase } from '@kakebo/db';
 import example from '../../../packages/db/fixtures/catalog.example.json' with { type: 'json' };
 import { createApp } from './app.ts';
 import type { Config } from './config.ts';
@@ -16,7 +16,7 @@ const config: Config = {
 
 function setup() {
   const { db, sqlite } = openDatabase({ file: ':memory:' });
-  const app = createApp(config, { store: new CatalogStore(db) });
+  const app = createApp(config, { store: new CatalogStore(db), cycles: new CycleStore(db) });
   // Untyped helper for raw requests (the typed client is tested separately).
   const json = (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) =>
     app.request(path, {
@@ -117,5 +117,65 @@ describe('catalog API', () => {
     if (!('id' in acc)) throw new Error('expected an account');
     const list = await (await client.api.catalog.$get()).json();
     expect(list.accounts.map((a) => a.id)).toEqual([acc.id]);
+  });
+});
+
+describe('cycles API', () => {
+  async function seeded() {
+    const ctx = setup();
+    await ctx.json('POST', '/api/import/catalog', example);
+    const catalog = await (await ctx.app.request('/api/catalog')).json() as { accounts: { id: string }[] };
+    const balances = catalog.accounts.map((a, i) => ({ accountId: a.id, amountCents: i === 0 ? 100000 : 0, asOf: '2026-11-10' }));
+    return { ...ctx, accounts: catalog.accounts, balances };
+  }
+
+  it('saves a draft, confirms it, stamps a transfer, reopens it', async () => {
+    const { json, accounts, balances } = await seeded();
+    const draft = { plannedOn: '2026-11-10', endsOn: '2026-12-10', balances, entries: [] };
+    const saved = await json('PUT', '/api/cycles/2026-11', draft);
+    expect(saved.status).toBe(200);
+    expect(await saved.json()).toMatchObject({ month: '2026-11', status: 'draft' });
+
+    const t = { fromAccountId: accounts[0]!.id, toAccountId: accounts[1]!.id, amountCents: 5000, date: '2026-11-10', dueDate: '2026-11-12' };
+    const confirmed = await json('POST', '/api/cycles/2026-11/confirm', { transfers: [t] });
+    expect(confirmed.status).toBe(200);
+    const { cycle } = await confirmed.json();
+    expect(cycle.status).toBe('confirmed');
+    expect(cycle.transfers).toHaveLength(1);
+
+    const stamped = await json('PATCH', `/api/transfers/${cycle.transfers[0].id}`, { doneOn: '2026-11-11' });
+    expect((await stamped.json()).transfers[0].doneOn).toBe('2026-11-11');
+
+    expect((await json('PUT', '/api/cycles/2026-11', draft)).status).toBe(409);
+    expect((await json('POST', '/api/cycles/2026-11/reopen')).status).toBe(200);
+    expect((await json('PUT', '/api/cycles/2026-11', draft)).status).toBe(200);
+
+    const list = await (await json('GET', '/api/cycles')).json();
+    expect(list.map((c: { month: string }) => c.month)).toEqual(['2026-11']);
+  });
+
+  it('validates months, drafts and transfers', async () => {
+    const { json, balances } = await seeded();
+    expect((await json('GET', '/api/cycles/novembre')).status).toBe(422);
+    expect((await json('GET', '/api/cycles/2026-11')).status).toBe(404);
+    const future = { plannedOn: '2026-11-10', endsOn: '2026-12-10', balances: [{ ...balances[0], asOf: '2026-11-11' }], entries: [] };
+    expect((await json('PUT', '/api/cycles/2026-11', future)).status).toBe(422);
+    const same = { fromAccountId: 'a', toAccountId: 'a', amountCents: 1, date: '2026-11-10', dueDate: '2026-11-10' };
+    expect((await json('POST', '/api/cycles/2026-11/confirm', { transfers: [same] })).status).toBe(422);
+    expect((await json('DELETE', '/api/cycles/2026-11')).status).toBe(404);
+  });
+
+  it('imports the history and lists debts', async () => {
+    const { json } = await seeded();
+    const file = {
+      cycles: [],
+      debts: [{ date: '2026-04-14', description: 'Gita', amountCents: 18750 }],
+      calendarEvents: [{ type: 'birthday', title: 'Compleanno di Z.', month: 3, day: 9 }],
+    };
+    const res = await json('POST', '/api/import/history', file);
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual({ cycles: 0, debts: 1, calendarEvents: 1 });
+    expect(await (await json('GET', '/api/debts')).json()).toMatchObject([{ description: 'Gita', paidOn: null }]);
+    expect((await json('POST', '/api/import/history', file)).status).toBe(409);
   });
 });

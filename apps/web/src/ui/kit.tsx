@@ -1,5 +1,5 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
-import type { AccountColor, AccountShape } from '@kakebo/core';
+import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react';
+import { formatEuro, parseEuro, type AccountColor, type AccountShape } from '@kakebo/core';
 
 /** Small building blocks of the "quaderno" look. Colors only through theme tokens. */
 
@@ -151,5 +151,47 @@ export function PageTitle({ children, sub }: { children: ReactNode; sub?: ReactN
       <h1 className="m-0 font-display text-[34px] leading-none font-bold sm:text-5xl">{children}</h1>
       {sub && <p className="mt-2 mb-0 max-w-[60ch] text-[15px] leading-normal text-ink-2">{sub}</p>}
     </div>
+  );
+}
+
+/**
+ * Reads an amount typed the Italian way ("1.234,50", "250", "−12,3"). A dot followed
+ * by one or two digits is taken as the decimal separator ("12.5" → 12,50).
+ */
+export function readAmount(text: string): number | null {
+  const s = text.trim().replace(/\s|€/g, '');
+  if (!s) return null;
+  const dot = /^([+\-−]?\d+)\.(\d{1,2})$/.exec(s);
+  return parseEuro(dot ? `${dot[1]},${dot[2]}` : s);
+}
+
+/** Text field for an amount: numeric keyboard on the phone, reformatted when leaving the field. */
+export function AmountField({
+  value,
+  onChange,
+  className,
+  allowNegative = false,
+  ...rest
+}: Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'> & {
+  value: string;
+  onChange: (text: string) => void;
+  allowNegative?: boolean;
+}) {
+  const cents = readAmount(value);
+  const invalid = value.trim() !== '' && (cents == null || (!allowNegative && cents < 0));
+  return (
+    <input
+      inputMode="decimal"
+      autoComplete="off"
+      enterKeyHint="next"
+      value={value}
+      aria-invalid={invalid || undefined}
+      onChange={(e) => onChange(e.target.value)}
+      onBlur={() => {
+        if (!invalid && cents != null) onChange(formatEuro(cents, { symbol: false }));
+      }}
+      className={cx('min-w-0 border-none bg-transparent p-0 text-right font-mono text-ink tabular-nums aria-invalid:text-verm', className)}
+      {...rest}
+    />
   );
 }

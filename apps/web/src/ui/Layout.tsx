@@ -23,7 +23,7 @@ const TABS: [Section[], string, string][] = [
 ];
 
 const PHONE_TITLE: Record<Section, string> = {
-  home: 'kakebo',
+  home: 'Oggi',
   cal: 'L’anno',
   cat: 'Le voci',
   deb: 'Debiti',
@@ -55,19 +55,28 @@ export function Layout({ active, children }: { active: Section; children: ReactN
             </Link>
           ))}
         </nav>
-        <span
-          title="Arriva con la fase 4"
-          aria-disabled="true"
-          className="mb-2.5 inline-flex min-h-11 cursor-not-allowed items-center rounded-field border-[1.5px] border-rule px-[18px] text-[15px] font-bold text-ink-2"
+        <Link
+          href="/programmazione"
+          className="mb-2.5 inline-flex min-h-11 items-center rounded-field border-[1.5px] border-ink px-[18px] text-[15px] font-bold text-ink no-underline"
         >
           Nuova programmazione
-        </span>
+        </Link>
       </header>
 
       {/* phone header */}
-      <header className="flex items-center gap-2.5 border-b-2 border-ink px-4 pt-3.5 pb-3 md:hidden">
-        <Seal size={32} />
-        <span className="font-display text-[22px] font-extrabold">{PHONE_TITLE[active]}</span>
+      <header className="flex items-center justify-between gap-2.5 border-b-2 border-ink px-4 pt-3.5 pb-3 md:hidden">
+        <span className="flex items-center gap-2.5">
+          <Seal size={32} />
+          <span className="font-display text-[22px] font-extrabold">{PHONE_TITLE[active]}</span>
+        </span>
+        {active === 'home' && (
+          <Link
+            href="/programmazione"
+            className="inline-flex min-h-11 items-center rounded-field border-[1.5px] border-ink px-3 text-sm font-bold text-ink no-underline"
+          >
+            Nuova programmazione
+          </Link>
+        )}
       </header>
       {(active === 'imp' || active === 'sto') && (
         <nav aria-label="Altre sezioni" className="flex gap-1.5 px-4 pt-3 md:hidden">

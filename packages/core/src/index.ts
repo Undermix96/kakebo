@@ -5,3 +5,4 @@ export * from './cycle.ts';
 export * from './plan.ts';
 export * from './schemas.ts';
 export * from './catalog.ts';
+export * from './cycle-record.ts';

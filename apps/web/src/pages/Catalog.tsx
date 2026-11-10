@@ -14,7 +14,7 @@ import {
 } from '@kakebo/core';
 import { useCatalog, useCreateItem, useUpdateItem } from '../api.ts';
 import { AccountGlyph, Button, ErrorNote, Field, Hand, Loading, PageTitle, Segmented, cx, inputClass, monoInputClass } from '../ui/kit.tsx';
-import { formatDay } from '../format.ts';
+import { formatDay, theDay, toDay } from '../format.ts';
 import { EmptyNotebook } from './EmptyNotebook.tsx';
 
 type Group = 'account' | 'day';
@@ -37,9 +37,9 @@ const yearKey = (item: CatalogItem) => {
 };
 
 function status(item: CatalogItem, today: string): { muted: boolean; text: string | null } {
-  if (item.activeFrom && item.activeFrom > today) return { muted: true, text: `sospesa, riprende il ${formatDay(item.activeFrom)}` };
-  if (item.activeTo && item.activeTo < today) return { muted: true, text: `finita il ${formatDay(item.activeTo)}` };
-  if (item.activeTo) return { muted: false, text: `fino al ${formatDay(item.activeTo)}` };
+  if (item.activeFrom && item.activeFrom > today) return { muted: true, text: `sospesa, riprende ${theDay(item.activeFrom)}` };
+  if (item.activeTo && item.activeTo < today) return { muted: true, text: `finita ${theDay(item.activeTo)}` };
+  if (item.activeTo) return { muted: false, text: `fino ${toDay(item.activeTo)}` };
   return { muted: false, text: null };
 }
 

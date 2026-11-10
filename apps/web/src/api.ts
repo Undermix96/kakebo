@@ -7,6 +7,11 @@ import type {
   AccountRecord,
   CatalogImport,
   CatalogItem,
+  CycleConfirm,
+  CycleDraft,
+  CycleRecord,
+  Debt,
+  HistoryImport,
   ItemCreate,
   ItemPatch,
   Settings,
@@ -86,3 +91,62 @@ export const useImportCatalog = () =>
   useCatalogMutation<CatalogImport, { accounts: number; items: number }>((json) =>
     client.api.import.catalog.$post({ json }),
   );
+
+// ---------- cycles ----------
+
+export function useCycles() {
+  return useQuery({ queryKey: ['cycles'], queryFn: () => unwrap<CycleRecord[]>(client.api.cycles.$get()) });
+}
+
+export function useDebts() {
+  return useQuery({ queryKey: ['debts'], queryFn: () => unwrap<Debt[]>(client.api.debts.$get()) });
+}
+
+/** Cycle mutations refresh the cycles (and the catalog: confirming updates "last" amounts). */
+function useCycleMutation<V, R>(fn: (v: V) => Promise<Response>) {
+  const qc = useQueryClient();
+  return useMutation<R, ApiError, V>({
+    mutationFn: (v) => unwrap<R>(fn(v)),
+    onSuccess: () => Promise.all([qc.invalidateQueries({ queryKey: ['cycles'] }), qc.invalidateQueries({ queryKey: ['catalog'] })]),
+  });
+}
+
+export const useSaveDraft = () =>
+  useMutation<CycleRecord, ApiError, { month: string; draft: CycleDraft }>({
+    mutationFn: ({ month, draft }) => unwrap(client.api.cycles[':month'].$put({ param: { month }, json: draft })),
+  });
+export const useConfirmCycle = () =>
+  useCycleMutation<{ month: string; body: CycleConfirm }, { cycle: CycleRecord; updatedItems: number }>(({ month, body }) =>
+    client.api.cycles[':month'].confirm.$post({ param: { month }, json: body }),
+  );
+export const useReopenCycle = () =>
+  useCycleMutation<string, CycleRecord>((month) => client.api.cycles[':month'].reopen.$post({ param: { month } }));
+export const useDeleteDraft = () =>
+  useCycleMutation<string, { ok: true }>((month) => client.api.cycles[':month'].$delete({ param: { month } }));
+export const useImportHistory = () => {
+  const qc = useQueryClient();
+  return useMutation<{ cycles: number; debts: number; calendarEvents: number }, ApiError, HistoryImport>({
+    mutationFn: (json) => unwrap(client.api.import.history.$post({ json })),
+    onSuccess: () => qc.invalidateQueries(),
+  });
+};
+
+/** Stamping is optimistic: the 済 appears at once, and goes away if the server says no. */
+export function useStampTransfer() {
+  const qc = useQueryClient();
+  return useMutation<CycleRecord, ApiError, { id: string; doneOn: string | null }, { before?: CycleRecord[] }>({
+    mutationFn: ({ id, doneOn }) => unwrap(client.api.transfers[':id'].$patch({ param: { id }, json: { doneOn } })),
+    onMutate: async ({ id, doneOn }) => {
+      await qc.cancelQueries({ queryKey: ['cycles'] });
+      const before = qc.getQueryData<CycleRecord[]>(['cycles']);
+      qc.setQueryData<CycleRecord[]>(['cycles'], (list) =>
+        list?.map((c) => ({ ...c, transfers: c.transfers.map((t) => (t.id === id ? { ...t, doneOn } : t)) })),
+      );
+      return { before };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.before) qc.setQueryData(['cycles'], ctx.before);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ['cycles'] }),
+  });
+}
