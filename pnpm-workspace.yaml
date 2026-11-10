@@ -4,4 +4,5 @@ packages:
 
 # Dependencies allowed to run install scripts (everything else is blocked).
 allowBuilds:
+  better-sqlite3: true
   esbuild: true

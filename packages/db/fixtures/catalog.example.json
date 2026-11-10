@@ -1,0 +1,21 @@
+{
+  "accounts": [
+    { "name": "Banca Blu", "role": "paga le spese fisse", "sort": 1, "marginCents": 0, "receivesLeftover": false, "color": "indaco", "shape": "square" },
+    { "name": "Banca Viola", "role": "domiciliazioni e stipendio di A.", "sort": 2, "marginCents": 0, "receivesLeftover": false, "color": "viola", "shape": "diamond" },
+    { "name": "Conto Giorno", "role": "spese di tutti i giorni e avanzi", "sort": 3, "marginCents": 0, "receivesLeftover": true, "color": "ocra", "shape": "circle" },
+    { "name": "Carta Spesa", "role": "spesa e farmacia", "sort": 4, "marginCents": 0, "receivesLeftover": false, "color": "muschio", "shape": "bar" }
+  ],
+  "items": [
+    { "kind": "income", "name": "Stipendio A.", "account": "Banca Viola", "day": 9, "schedule": { "type": "monthly" }, "amountMode": "last", "amountCents": 120000 },
+    { "kind": "income", "name": "Stipendio B.", "account": "Conto Giorno", "day": 13, "schedule": { "type": "monthly" }, "amountMode": "last", "amountCents": 140000 },
+    { "kind": "expense", "name": "Spesa", "account": "Carta Spesa", "day": 11, "schedule": { "type": "monthly" }, "amountMode": "last", "amountCents": 50000 },
+    { "kind": "expense", "name": "Rata finanziamento", "account": "Banca Viola", "day": 20, "schedule": { "type": "monthly" }, "amountMode": "fixed", "amountCents": 30000 },
+    { "kind": "expense", "name": "Affitto", "account": "Banca Blu", "day": 30, "schedule": { "type": "monthly" }, "amountMode": "fixed", "amountCents": 65000 },
+    { "kind": "expense", "name": "Carta di credito", "account": "Banca Blu", "day": 3, "schedule": { "type": "monthly" }, "amountMode": "last", "amountCents": 40000, "note": "spese del mese prima + interessi" },
+    { "kind": "expense", "name": "Luce", "account": "Banca Blu", "day": 6, "schedule": { "type": "monthly" }, "amountMode": "last", "amountCents": 8000 },
+    { "kind": "expense", "name": "Tassa rifiuti", "account": "Banca Blu", "day": 16, "schedule": { "type": "months", "months": [6, 12] }, "amountMode": "last", "amountCents": null },
+    { "kind": "expense", "name": "Bollo auto", "account": "Banca Blu", "day": null, "schedule": { "type": "yearly", "month": 5 }, "amountMode": "last", "amountCents": 20000 },
+    { "kind": "expense", "name": "Vecchia carta", "account": "Banca Blu", "day": 18, "schedule": { "type": "monthly" }, "amountMode": "fixed", "amountCents": null, "archived": true }
+  ],
+  "settings": { "cycleEndDay": 10, "roundingCents": 0, "leadDays": 1 }
+}

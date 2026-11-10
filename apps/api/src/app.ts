@@ -2,10 +2,15 @@ import { Hono } from 'hono';
 import { secureHeaders } from 'hono/secure-headers';
 import { serveStatic } from '@hono/node-server/serve-static';
 import type { JWTVerifyGetKey } from 'jose';
+import { ZodError } from 'zod';
+import { StoreError, type CatalogStore } from '@kakebo/db';
 import { cloudflareAccess, fakeIdentity, type AccessEnv } from './access.ts';
 import type { Config } from './config.ts';
+import { apiRoutes } from './routes.ts';
 
-export function createApp(config: Config, deps: { jwks?: JWTVerifyGetKey } = {}) {
+const STATUS = { not_found: 404, conflict: 409, invalid: 422 } as const;
+
+export function createApp(config: Config, deps: { store: CatalogStore; jwks?: JWTVerifyGetKey }) {
   const app = new Hono<AccessEnv>();
 
   app.use(
@@ -36,9 +41,15 @@ export function createApp(config: Config, deps: { jwks?: JWTVerifyGetKey } = {})
     app.use('*', fakeIdentity(config.devFakeIdentity));
   }
 
-  const api = new Hono<AccessEnv>().get('/me', (c) => c.json(c.get('identity')));
-  app.route('/api', api);
+  const typed = app.route('/api', apiRoutes(deps.store));
   app.all('/api/*', (c) => c.json({ error: 'not found' }, 404));
+
+  app.onError((err, c) => {
+    if (err instanceof StoreError) return c.json({ error: err.message }, STATUS[err.code]);
+    if (err instanceof ZodError) return c.json({ error: err.issues[0]?.message ?? 'dati non validi' }, 422);
+    console.error(err);
+    return c.json({ error: 'errore interno' }, 500);
+  });
 
   if (config.staticDir) {
     const root = config.staticDir;
@@ -47,7 +58,8 @@ export function createApp(config: Config, deps: { jwks?: JWTVerifyGetKey } = {})
     app.get('*', serveStatic({ root, path: 'index.html' }));
   }
 
-  return app;
+  return typed;
 }
 
+/** Type of the whole app, for the typed Hono client (`hc<App>`). */
 export type App = ReturnType<typeof createApp>;

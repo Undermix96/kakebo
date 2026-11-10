@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT, type CryptoKey, type JWTVerifyGetKey } from 'jose';
+import { CatalogStore, openDatabase } from '@kakebo/db';
 import { createApp } from './app.ts';
 import { loadConfig, type Config } from './config.ts';
 
@@ -21,6 +22,7 @@ const config: Config = {
   port: 0,
   staticDir: null,
   dataDir: './data',
+  migrationsDir: null,
   access: { teamDomain: TEAM, audiences: [AUD_WEB, AUD_API] },
   devFakeIdentity: null,
 };
@@ -35,7 +37,7 @@ function sign(claims: Record<string, unknown>, opts: { aud?: string; iss?: strin
     .sign(privateKey);
 }
 
-const get = (path: string, headers: Record<string, string> = {}) => createApp(config, { jwks }).request(path, { headers });
+const get = (path: string, headers: Record<string, string> = {}) => createApp(config, { jwks, store: new CatalogStore(openDatabase({ file: ':memory:' }).db) }).request(path, { headers });
 
 describe('Cloudflare Access middleware', () => {
   it('healthz is public', async () => {

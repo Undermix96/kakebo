@@ -35,6 +35,8 @@ export interface RecurringItem {
   /** Always positive. null = amount not known yet (flagged, never invented). */
   amountCents: Cents | null;
   note?: string | null;
+  /** Free label for future kakebo statistics. */
+  category?: string | null;
   /** Inclusive bounds of validity, ISO dates. */
   activeFrom?: ISODate | null;
   activeTo?: ISODate | null;

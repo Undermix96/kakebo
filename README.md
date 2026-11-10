@@ -11,7 +11,8 @@ Web app ora, app native iOS/Android più avanti. Self-hosted (Docker) dietro Clo
 ## Struttura
 
 ```
-packages/core/   motore di calcolo e utilità condivise (TypeScript puro, Vitest)
+packages/core/   motore di calcolo, tipi e schemi Zod condivisi (TypeScript puro, Vitest)
+packages/db/     SQLite + Drizzle: schema, migrazioni, catalogo, backup notturno
 apps/api/        Hono su Node: API REST, verifica del JWT di Cloudflare Access, serve il web
 apps/web/        React + Vite + TanStack Query + Tailwind (design "Il quaderno")
 docker/          Dockerfile, compose.yaml, .env.example
@@ -30,6 +31,22 @@ docker/          Dockerfile, compose.yaml, .env.example
 - Importi sempre in centesimi interi, date come stringhe `AAAA-MM-GG`.
 
 I test (Vitest + fast-check) controllano un ciclo d'esempio con dati inventati e gli invarianti su cicli casuali; il caso reale gira solo in locale, da `private/fixtures/`.
+
+## Dati e catalogo
+
+Il database è SQLite (WAL) con Drizzle ORM (`better-sqlite3`), in `DATA_DIR/kakebo.db`; le migrazioni (`packages/db/migrations`, generate con `pnpm --filter @kakebo/db generate`) partono all'avvio. Ogni modifica registra chi l'ha fatta (identità di Access).
+
+API (tutte sotto `/api`, JSON, 422 con un messaggio in italiano se i dati non vanno):
+
+| Metodo | Percorso | |
+| --- | --- | --- |
+| GET | `/catalog` | conti, voci del catalogo, impostazioni |
+| POST / PATCH | `/accounts`, `/accounts/:id` | conti (colore, segno, ruolo, margine, chi riceve gli avanzi, chiuso) |
+| POST / PATCH | `/items`, `/items/:id` | voci ricorrenti (frequenza, importo fisso o "proponi l'ultimo", sospendi, archivia) |
+| PATCH | `/settings` | fine ciclo, arrotondamento dei bonifici, anticipo |
+| POST | `/import/catalog` | primo caricamento da un file JSON (solo a quaderno vuoto) |
+
+Il formato del file del catalogo è in `packages/db/fixtures/catalog.example.json` (dati inventati). Si carica dall'app: *Impostazioni* → *Carica il catalogo da un file*, oppure dalla pagina iniziale vuota; prima di scrivere l'app mostra un riepilogo (conti, voci, voci senza importo o senza giorno).
 
 ## Sviluppo
 
@@ -74,7 +91,7 @@ L'app è pubblicata su `kakebo.undermix.it`. `cloudflared` gira altrove nella LA
 
 ### Backup
 
-I dati stanno in un database SQLite nel volume `kakebo-data` (`/data` nel container). Ogni notte l'app ne scrive una copia coerente (`VACUUM INTO`) in `/data/backup/kakebo-AAAA-MM-GG.db` e tiene le ultime 7; fa la stessa copia anche prima di ogni migrazione. È quella cartella che va salvata con il proprio strumento di backup dei volumi (es. Backrest/restic): il file vivo, in modalità WAL, non va copiato a caldo. Per ripristinare: fermare il container, rimettere la copia come `/data/kakebo.db` (eliminando eventuali `-wal`/`-shm`) e riavviare. *(Dalla fase 3, con il database.)*
+I dati stanno in un database SQLite nel volume `kakebo-data` (`/data` nel container). Ogni notte l'app ne scrive una copia coerente (`VACUUM INTO`) in `/data/backup/kakebo-AAAA-MM-GG.db` e tiene le ultime 7; fa la stessa copia anche prima di ogni migrazione. È quella cartella che va salvata con il proprio strumento di backup dei volumi (es. Backrest/restic): il file vivo, in modalità WAL, non va copiato a caldo. Per ripristinare: fermare il container, rimettere la copia come `/data/kakebo.db` (eliminando eventuali `-wal`/`-shm`) e riavviare.
 
 ## Licenza
 

@@ -1,57 +1,60 @@
-import { useQuery } from '@tanstack/react-query';
+import { usePath } from './router.tsx';
+import { Layout, type Section } from './ui/Layout.tsx';
+import { CatalogPage } from './pages/Catalog.tsx';
+import { SettingsPage } from './pages/Settings.tsx';
+import { Soon } from './pages/Soon.tsx';
 
-interface Identity {
-  id: string;
-  kind: 'user' | 'service' | 'dev';
-}
-
-async function fetchMe(): Promise<Identity> {
-  const res = await fetch('/api/me', { credentials: 'same-origin' });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-}
-
-/** The kakebo seal: 家計簿 written vertically on a vermilion hanko. */
-function Seal({ size = 40 }: { size?: number }) {
-  return (
-    <span
-      aria-hidden="true"
-      className="flex flex-none items-center justify-center rounded-seal bg-verm font-display font-extrabold leading-none text-seal-ink [writing-mode:vertical-rl]"
-      style={{ width: size, height: size, fontSize: size * 0.275 }}
-    >
-      家計簿
-    </span>
-  );
-}
+const PAGES: Record<string, [Section, () => React.JSX.Element]> = {
+  '/': [
+    'home',
+    () => (
+      <Soon title="Oggi" phase={4}>
+        Qui vedrai i bonifici ancora da fare, le uscite dei prossimi quattordici giorni e i debiti scaduti. Intanto il
+        catalogo e le impostazioni sono pronti.
+      </Soon>
+    ),
+  ],
+  '/calendario': [
+    'cal',
+    () => (
+      <Soon title="Calendario" phase={5}>
+        L’anno in dodici colonne, con spese, scadenze, compleanni e debiti.
+      </Soon>
+    ),
+  ],
+  '/catalogo': ['cat', CatalogPage],
+  '/debiti': [
+    'deb',
+    () => (
+      <Soon title="Debiti" phase={5}>
+        I debiti da ricordare, con quelli scaduti in cima e “segna come saldato”.
+      </Soon>
+    ),
+  ],
+  '/storico': [
+    'sto',
+    () => (
+      <Soon title="Storico" phase={4}>
+        Le programmazioni confermate, da riaprire in sola lettura.
+      </Soon>
+    ),
+  ],
+  '/impostazioni': ['imp', SettingsPage],
+};
 
 export function App() {
-  const me = useQuery({ queryKey: ['me'], queryFn: fetchMe });
-
+  const path = usePath().replace(/\/+$/, '') || '/';
+  const [section, Page] = PAGES[path] ?? [
+    'home',
+    () => (
+      <Soon title="Pagina non trovata" phase={0}>
+        Questa pagina non esiste.
+      </Soon>
+    ),
+  ];
   return (
-    <div className="flex min-h-dvh flex-col bg-paper text-ink">
-      <header className="flex items-center gap-3 border-b-2 border-ink px-4 py-4 sm:px-12">
-        <Seal />
-        <span className="font-display text-[26px] font-extrabold">kakebo</span>
-      </header>
-
-      <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-12 sm:px-12">
-        <h1 className="font-display text-4xl font-bold leading-tight sm:text-5xl">Il quaderno è aperto.</h1>
-        <p className="mt-4 max-w-prose text-lg leading-relaxed">
-          Le fondamenta ci sono: il container risponde, l’accesso passa da Cloudflare. Le pagine del rito
-          mensile arrivano nelle prossime fasi.
-        </p>
-
-        <div className="mt-10 border-t border-ink pt-3">
-          <div className="text-sm text-ink-2">chi sta scrivendo</div>
-          <div className="mt-1 font-mono text-xl font-semibold">
-            {me.isPending && 'un attimo…'}
-            {me.isError && 'non riesco a capire chi sei'}
-            {me.isSuccess && me.data.id}
-          </div>
-        </div>
-
-        <p className="mt-8 -rotate-1 font-hand text-2xl text-verm">prima il motore, poi le pagine.</p>
-      </main>
-    </div>
+    <Layout active={section}>
+      <Page />
+    </Layout>
   );
 }

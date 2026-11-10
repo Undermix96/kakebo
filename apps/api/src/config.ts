@@ -2,7 +2,10 @@ export interface Config {
   port: number;
   /** Directory with the built web app; null = API only. */
   staticDir: string | null;
+  /** Holds kakebo.db and backup/ (the Docker volume in production). */
   dataDir: string;
+  /** Drizzle migrations folder; null = the one shipped with @kakebo/db (development). */
+  migrationsDir: string | null;
   access: {
     /** e.g. "myteam.cloudflareaccess.com" */
     teamDomain: string;
@@ -44,6 +47,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     port: Number(env.PORT ?? 8080),
     staticDir: env.STATIC_DIR?.trim() || null,
     dataDir: env.DATA_DIR?.trim() || './data',
+    migrationsDir: env.MIGRATIONS_DIR?.trim() || null,
     access,
     devFakeIdentity,
   };

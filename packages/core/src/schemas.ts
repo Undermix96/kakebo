@@ -26,25 +26,31 @@ export const accountSchema = z.object({
   receivesLeftover: z.boolean(),
 });
 
-export const recurringItemSchema = z
-  .object({
-    id,
-    kind: z.enum(['income', 'expense']),
-    name: z.string().trim().min(1),
-    accountId: id,
-    day: z.number().int().min(1).max(31).nullable(),
-    schedule: scheduleSchema,
-    amountMode: z.enum(['fixed', 'last']),
-    amountCents: positiveCents.nullable(),
-    note: z.string().nullish(),
-    activeFrom: isoDate.nullish(),
-    activeTo: isoDate.nullish(),
-    archived: z.boolean().optional(),
-  })
-  .refine((i) => !i.activeFrom || !i.activeTo || i.activeFrom <= i.activeTo, {
-    message: 'la data di fine viene prima di quella di inizio',
-    path: ['activeTo'],
-  });
+/** Fields of a catalog item, without refinements (so it can be picked/partialed). */
+export const recurringItemFields = z.object({
+  id,
+  kind: z.enum(['income', 'expense']),
+  name: z.string().trim().min(1),
+  accountId: id,
+  day: z.number().int().min(1).max(31).nullable(),
+  schedule: scheduleSchema,
+  amountMode: z.enum(['fixed', 'last']),
+  amountCents: positiveCents.nullable(),
+  note: z.string().nullish(),
+  category: z.string().nullish(),
+  activeFrom: isoDate.nullish(),
+  activeTo: isoDate.nullish(),
+  archived: z.boolean().optional(),
+});
+
+export const activeRangeIsValid = (i: { activeFrom?: string | null; activeTo?: string | null }) =>
+  !i.activeFrom || !i.activeTo || i.activeFrom <= i.activeTo;
+export const ACTIVE_RANGE_MESSAGE = 'la data di fine viene prima di quella di inizio';
+
+export const recurringItemSchema = recurringItemFields.refine(activeRangeIsValid, {
+  message: ACTIVE_RANGE_MESSAGE,
+  path: ['activeTo'],
+});
 
 export const cycleEntrySchema = z.object({
   id,

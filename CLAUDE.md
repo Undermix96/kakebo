@@ -1,7 +1,7 @@
 # kakebo — note per chi sviluppa (anche agenti)
 
 - **Fonte di verità del progetto**: `private/HANDOFF.md` (non versionato). Lì ci sono requisiti, decisioni prese, motore di calcolo, modello dati, fasi e punti aperti. In caso di conflitto vale quel file.
-- Design UI: `private/design/project/*.dc.html` (direzione scelta: "Il quaderno"). Token già riportati in `apps/web/src/theme.css`: tienili lì, niente hex sparsi nei componenti.
+- Design UI: `private/design/project/*.dc.html` (direzione scelta: "Il quaderno"). Token già riportati in `apps/web/src/theme.css`: tienili lì, niente hex sparsi nei componenti. Tailwind 4 emette solo le variabili di tema usate dalle utility: per i colori scelti a runtime (palette dei conti) usare le variabili `--k-*` di `:root`.
 - Piano leggibile: `private/PIANO-APP.md`.
 
 ## Regole non negoziabili
@@ -17,6 +17,8 @@
 ## Comandi
 
 - `pnpm install` · `pnpm typecheck` · `pnpm test` · `pnpm build`
-- Sviluppo: `DEV_FAKE_IDENTITY=dev@example.com pnpm dev`
+- Sviluppo: `DEV_FAKE_IDENTITY=dev@example.com pnpm dev` (DB in `apps/api/data/`, ignorato da git)
+- Nuova migrazione dopo aver cambiato `packages/db/src/schema.ts`: `pnpm --filter @kakebo/db generate` (committare la cartella `migrations/`).
+- Catalogo reale (privato): `private/fixtures/catalog-2026-11.json`, da caricare dall'app (Impostazioni → Carica il catalogo da un file). Esempio inventato: `packages/db/fixtures/catalog.example.json`.
 - Release: workflow manuale `.github/workflows/release.yml` (tag `AAAA.MM.GG-b<N>`): `gh workflow run release.yml --ref main`.
 - Deploy: stack Portainer con `docker/compose.yaml`, variabili nello stack (vedi `docker/.env.example`). Web su `kakebo.undermix.it`, API nativa (fase 6) su `kakebo-api.undermix.it`.
