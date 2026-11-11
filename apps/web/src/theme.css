@@ -109,6 +109,8 @@
 }
 
 :root {
+  /* Native controls (select menus, date pickers, scrollbars) follow the theme */
+  color-scheme: light;
   /* Fixed swatches for the theme picker (do not change with the theme) */
   --k-swatch-light: #f2ecdf;
   --k-swatch-light-page: #f7f2e8;
@@ -149,6 +151,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
+    color-scheme: dark;
     --k-paper: #1a1714;
     --k-page: #221e1a;
     --k-ink: #eee6d6;
@@ -181,6 +184,7 @@
 }
 
 :root[data-theme='dark'] {
+  color-scheme: dark;
   --k-paper: #1a1714;
   --k-page: #221e1a;
   --k-ink: #eee6d6;
@@ -217,6 +221,12 @@
     color: var(--k-ink);
     font-family: var(--font-sans);
     font-variant-numeric: tabular-nums;
+  }
+  /* The open list of a <select> is drawn by the system: give it the page colors. */
+  option,
+  optgroup {
+    background-color: var(--k-page);
+    color: var(--k-ink);
   }
   :focus-visible {
     outline: 3px solid var(--k-verm);
