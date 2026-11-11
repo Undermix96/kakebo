@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import {
   addDays,
   cycleTotals,
@@ -40,8 +40,12 @@ export interface LeftoverChoice {
   key: string;
   fromAccountId: string;
   toAccountId: string;
+  /** What can be moved on `date` (cut when the date was brought forward by hand). */
   amountCents: number;
+  /** What the engine suggested for this installment. */
+  suggestedCents: number;
   date: ISODate;
+  suggestedDate: ISODate;
   chosen: boolean;
 }
 
@@ -63,6 +67,7 @@ export function CycleResult({
   stampBusy,
   leftover,
   onLeftover,
+  onLeftoverDate,
   status,
   actions,
 }: {
@@ -79,6 +84,7 @@ export function CycleResult({
   stampBusy?: boolean;
   leftover?: LeftoverChoice[];
   onLeftover?: (key: string) => void;
+  onLeftoverDate?: (key: string, date: ISODate) => void;
   status: ReactNode;
   actions?: ReactNode;
 }) {
@@ -164,21 +170,51 @@ export function CycleResult({
           <div className="mt-5">
             <h3 className="m-0 font-display text-lg font-bold">Il resto, se vuoi</h3>
             <p className="mt-1 mb-0 text-sm text-ink-2">Spostarlo non cambia il totale: lo mette dove lo usi tutti i giorni.</p>
-            {leftover.map((l) => (
-              <label key={l.key} className="mt-2 flex min-h-11 cursor-pointer items-center gap-3 border-b border-rule py-1.5">
-                <input
-                  type="checkbox"
-                  checked={l.chosen}
-                  onChange={() => onLeftover?.(l.key)}
-                  className="size-5 flex-none accent-(--k-ink)"
-                />
-                <span className="min-w-0 flex-1">
-                  <Route from={byId.get(l.fromAccountId)} to={byId.get(l.toAccountId)} className="text-[15px]" />
-                  <span className="block text-[13px] text-ink-2">{fromDay(l.date)}, entro {theDay(end)}</span>
-                </span>
-                <span className="font-mono text-[17px] font-semibold">{money(l.amountCents)}</span>
-              </label>
-            ))}
+            {leftover.map((l) => {
+              const none = l.amountCents <= 0;
+              const cut = !none && l.amountCents < l.suggestedCents;
+              return (
+                <label key={l.key} className="mt-2 flex min-h-11 cursor-pointer items-center gap-3 border-b border-rule py-1.5">
+                  <input
+                    type="checkbox"
+                    checked={l.chosen}
+                    disabled={none}
+                    onChange={() => onLeftover?.(l.key)}
+                    className="size-5 flex-none accent-(--k-ink)"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <Route from={byId.get(l.fromAccountId)} to={byId.get(l.toAccountId)} className="text-[15px]" />
+                    <span className="block text-[13px] text-ink-2">
+                      {onLeftoverDate ? (
+                        <LeftoverDay date={l.date} min={today} max={end} onMove={(d) => onLeftoverDate(l.key, d)} />
+                      ) : (
+                        fromDay(l.date)
+                      )}
+                      , entro {theDay(end)}
+                      {l.date !== l.suggestedDate && onLeftoverDate && (
+                        <>
+                          {' · '}
+                          <button
+                            type="button"
+                            onClick={() => onLeftoverDate(l.key, l.suggestedDate)}
+                            className="cursor-pointer border-none bg-transparent p-0 text-[13px] text-ink-2 underline"
+                          >
+                            rimetti {fromDay(l.suggestedDate)}
+                          </button>
+                        </>
+                      )}
+                      {none && <span className="block">quel giorno non c’è ancora niente di libero: si libera {fromDay(l.suggestedDate)}</span>}
+                      {cut && (
+                        <span className="block">
+                          quel giorno sono liberi solo {money(l.amountCents)} €: tutti i {money(l.suggestedCents)} € {fromDay(l.suggestedDate)}
+                        </span>
+                      )}
+                    </span>
+                  </span>
+                  <span className={cx('font-mono text-[17px] font-semibold', none && 'text-ink-2')}>{money(l.amountCents)}</span>
+                </label>
+              );
+            })}
           </div>
         )}
 
@@ -678,6 +714,47 @@ function Ledger({ plan, accounts, transfers }: { plan: PlanResult; accounts: Acc
           </span>
         </div>
       </div>
+    </>
+  );
+}
+
+/** The day of a leftover move, as a button that opens the date picker. */
+function LeftoverDay({ date, min, max, onMove }: { date: ISODate; min: ISODate; max: ISODate; onMove: (date: ISODate) => void }) {
+  const input = useRef<HTMLInputElement>(null);
+  const open = (ev: MouseEvent) => {
+    ev.preventDefault(); // inside the row's label: do not toggle the checkbox
+    const el = input.current;
+    if (!el) return;
+    try {
+      el.showPicker();
+    } catch {
+      el.focus();
+    }
+  };
+  return (
+    <>
+      <button
+        type="button"
+        onClick={open}
+        aria-label={`Giorno del bonifico: ${formatDay(date)}. Cambia il giorno`}
+        className="min-h-9 cursor-pointer border-0 border-b border-dashed border-rule bg-transparent p-0 text-left text-[13px] text-ink-2 hover:text-ink"
+      >
+        {fromDay(date)}
+      </button>
+      <input
+        ref={input}
+        type="date"
+        tabIndex={-1}
+        aria-hidden="true"
+        className="sr-only"
+        value={date}
+        min={min}
+        max={max}
+        onChange={(ev) => {
+          const d = ev.target.value;
+          if (d && d >= min && d <= max) onMove(d);
+        }}
+      />
     </>
   );
 }

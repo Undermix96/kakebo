@@ -70,11 +70,16 @@ export function checkInvariants(input: PlanInput, plan: PlanResult): void {
     }
   }
 
-  // Leftover suggestions never push the source below its margin from their date on.
-  for (const s of plan.leftover.suggestions) {
-    for (let d = s.date; d <= input.end; d = addDays(d, 1)) {
-      const row = plan.daily.find((r) => r.date === d)!;
-      expect(row.balances[s.fromAccountId]! - s.amountCents).toBeGreaterThanOrEqual(margin.get(s.fromAccountId)!);
+  // Leftover suggestions, all taken together, never push a source below its margin,
+  // and never go beyond what the availability says.
+  for (let d = input.today; d <= input.end; d = addDays(d, 1)) {
+    const row = plan.daily.find((r) => r.date === d)!;
+    for (const [src, steps] of Object.entries(plan.leftover.availability)) {
+      const moved = plan.leftover.suggestions.filter((s) => s.fromAccountId === src && s.date <= d).reduce((t, s) => t + s.amountCents, 0);
+      const free = steps.filter((s) => s.date <= d).at(-1)?.amountCents ?? 0;
+      expect(moved).toBeLessThanOrEqual(free);
+      if (moved > 0) expect(row.balances[src]! - moved).toBeGreaterThanOrEqual(margin.get(src)!);
     }
   }
+  for (const s of plan.leftover.suggestions) expect(plan.leftover.availability[s.fromAccountId]).toBeDefined();
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { planCycle, PlanInputError, type PlanInput } from './plan.ts';
+import { fitLeftover, planCycle, PlanInputError, type PlanInput } from './plan.ts';
 import { checkInvariants } from './test-utils.ts';
 import type { Account, CycleEntry } from './types.ts';
 
@@ -337,8 +337,75 @@ describe('planCycle: cash warnings and leftover', () => {
       toAccountId: 'ing',
       suggestions: [
         { fromAccountId: 'a', toAccountId: 'ing', amountCents: 200, date: '2026-11-10', dueDate: '2026-12-10' },
-        { fromAccountId: 'b', toAccountId: 'ing', amountCents: 550, date: '2026-12-01', dueDate: '2026-12-10' },
+        // What b has today goes now; the income of the 1st follows when it arrives.
+        { fromAccountId: 'b', toAccountId: 'ing', amountCents: 500, date: '2026-11-10', dueDate: '2026-12-10' },
+        { fromAccountId: 'b', toAccountId: 'ing', amountCents: 50, date: '2026-12-01', dueDate: '2026-12-10' },
       ],
+      availability: {
+        a: [{ date: '2026-11-10', amountCents: 200 }],
+        b: [
+          { date: '2026-11-10', amountCents: 500 },
+          { date: '2026-12-01', amountCents: 550 },
+        ],
+      },
     });
+  });
+
+  it('moves the part of the leftover that is free today, the rest when it frees up', () => {
+    const plan = run(
+      base({
+        accounts: [account('a', 1), account('ing', 2, { receivesLeftover: true })],
+        balances: [
+          { accountId: 'a', amountCents: 1000, asOf: '2026-11-10' },
+          { accountId: 'ing', amountCents: 0, asOf: '2026-11-10' },
+        ],
+        // a dips to 150 on the 15th and only gets back to 950 on the 25th.
+        entries: [entry('a', '2026-11-15', -850), entry('a', '2026-11-25', 800), entry('a', '2026-12-05', -105)],
+        options: { roundingCents: 100 },
+      }),
+    );
+    expect(plan.leftover.suggestions).toEqual([
+      { fromAccountId: 'a', toAccountId: 'ing', amountCents: 100, date: '2026-11-10', dueDate: '2026-12-10' },
+      { fromAccountId: 'a', toAccountId: 'ing', amountCents: 700, date: '2026-11-25', dueDate: '2026-12-10' },
+    ]);
+    // The cents stay on a.
+    expect(plan.accounts.find((x) => x.accountId === 'a')!.withTransfers.endCents - 800).toBe(45);
+  });
+
+  it('suggests nothing when the source has no surplus', () => {
+    const plan = run(
+      base({
+        accounts: [account('a', 1), account('ing', 2, { receivesLeftover: true })],
+        balances: [
+          { accountId: 'a', amountCents: 100, asOf: '2026-11-10' },
+          { accountId: 'ing', amountCents: 0, asOf: '2026-11-10' },
+        ],
+        entries: [entry('a', '2026-11-15', -100)],
+      }),
+    );
+    expect(plan.leftover.suggestions).toEqual([]);
+    expect(plan.leftover.availability).toEqual({});
+  });
+});
+
+describe('fitLeftover', () => {
+  const steps = [
+    { date: '2026-11-10', amountCents: 100 },
+    { date: '2026-11-25', amountCents: 800 },
+  ];
+  const mv = (date: string, amountCents: number, chosen = true) => ({ date, amountCents, chosen });
+
+  it('keeps the suggested moves as they are', () => {
+    expect(fitLeftover(steps, [mv('2026-11-10', 100), mv('2026-11-25', 700)])).toEqual([100, 700]);
+  });
+
+  it('cuts a move brought forward to what is free on its new day', () => {
+    expect(fitLeftover(steps, [mv('2026-11-10', 100), mv('2026-11-20', 700)])).toEqual([100, 0]);
+    expect(fitLeftover(steps, [mv('2026-11-10', 100, false), mv('2026-11-20', 700)])).toEqual([100, 100]);
+  });
+
+  it('lets a move be postponed, also before or after the other one', () => {
+    expect(fitLeftover(steps, [mv('2026-11-30', 100), mv('2026-11-25', 700)])).toEqual([100, 700]);
+    expect(fitLeftover(steps, [mv('2026-11-09', 100), mv('2026-11-25', 700)])).toEqual([0, 700]);
   });
 });

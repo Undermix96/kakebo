@@ -6,6 +6,7 @@ import {
   defaultEntryState,
   envelopeSpent,
   envelopeStatus,
+  fitLeftover,
   fixedTransfersOf,
   generateCycleEntries,
   isYearMonth,
@@ -183,6 +184,7 @@ function Wizard({
   const touched = useRef(new Set<string>(existing ? init.entries.map((e) => e.id) : []));
   const [stamps, setStamps] = useState<Record<string, ISODate>>({});
   const [leftoverOn, setLeftoverOn] = useState<Set<string>>(new Set());
+  const [leftoverDates, setLeftoverDates] = useState<Record<string, ISODate>>({});
   const [saveError, setSaveError] = useState<unknown>(null);
   const [pendingStep, setPendingStep] = useState<Step | null>(null);
   const [showErrors, setShowErrors] = useState(false);
@@ -408,11 +410,36 @@ function Wizard({
       const key = `${t.fromAccountId}>${t.toAccountId}#${i}`;
       viewTransfers.push({ ...t, key, doneOn: stamps[key] ?? null });
     });
-    for (const s of plan.leftover.suggestions) {
-      const key = `resto>${s.fromAccountId}`;
-      leftover.push({ key, fromAccountId: s.fromAccountId, toAccountId: s.toAccountId, amountCents: s.amountCents, date: s.date, chosen: leftoverOn.has(key) });
+    // The leftover of each source comes in installments; a date changed by hand cuts
+    // the amount to what is free on that day.
+    const sources = [...new Set(plan.leftover.suggestions.map((s) => s.fromAccountId))];
+    for (const src of sources) {
+      const parts = plan.leftover.suggestions
+        .filter((s) => s.fromAccountId === src)
+        .map((s, i) => {
+          const key = `resto>${src}#${i}`;
+          return { key, s, date: leftoverDates[key] ?? s.date, chosen: leftoverOn.has(key) };
+        });
+      const fit = fitLeftover(
+        plan.leftover.availability[src] ?? [],
+        parts.map((p) => ({ date: p.date, amountCents: p.s.amountCents, chosen: p.chosen })),
+      );
+      parts.forEach((p, i) =>
+        leftover.push({
+          key: p.key,
+          fromAccountId: src,
+          toAccountId: p.s.toAccountId,
+          amountCents: fit[i]!,
+          suggestedCents: p.s.amountCents,
+          date: p.date,
+          suggestedDate: p.s.date,
+          chosen: p.chosen && fit[i]! > 0,
+        }),
+      );
     }
-    const chosen: Transfer[] = leftover.filter((l) => l.chosen).map((l) => ({ ...l, dueDate: endsOn }));
+    const chosen: Transfer[] = leftover
+      .filter((l) => l.chosen)
+      .map((l) => ({ fromAccountId: l.fromAccountId, toAccountId: l.toAccountId, amountCents: l.amountCents, date: l.date, dueDate: endsOn }));
     finalPlan = planCycle({
       accounts,
       balances: parsedBalances as { accountId: string; amountCents: number; asOf: ISODate }[],
@@ -431,7 +458,17 @@ function Wizard({
       await save.mutateAsync({ month, draft: draft() });
       const transfers = [
         ...viewTransfers.filter((t) => !t.locked),
-        ...leftover.filter((l) => l.chosen).map((l) => ({ ...l, dueDate: endsOn, doneOn: stamps[l.key] ?? null, coversEntryIds: [] })),
+        ...leftover
+          .filter((l) => l.chosen)
+          .map((l) => ({
+            fromAccountId: l.fromAccountId,
+            toAccountId: l.toAccountId,
+            amountCents: l.amountCents,
+            date: l.date,
+            dueDate: endsOn,
+            doneOn: stamps[l.key] ?? null,
+            coversEntryIds: [],
+          })),
       ].map((t) => ({
         fromAccountId: t.fromAccountId,
         toAccountId: t.toAccountId,
@@ -542,6 +579,7 @@ function Wizard({
                   return n;
                 })
               }
+              onLeftoverDate={(key, date) => setLeftoverDates((d) => ({ ...d, [key]: date }))}
               status={
                 <>
                   passo 4 di 4

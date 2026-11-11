@@ -107,6 +107,12 @@ export type PlanWarning =
 
 export interface LeftoverSuggestion extends Transfer {}
 
+/** From `date` on, the source can move up to `amountCents` (in total) to the leftover account. */
+export interface LeftoverStep {
+  date: ISODate;
+  amountCents: Cents;
+}
+
 export interface PlanResult {
   start: ISODate;
   today: ISODate;
@@ -122,8 +128,13 @@ export interface PlanResult {
     totalCents: Cents;
     /** The account flagged `receivesLeftover`, if any. */
     toAccountId: Id | null;
-    /** Optional moves of the surplus to that account, never below anyone's margin. */
+    /**
+     * Optional moves of the surplus to that account, never below anyone's margin: per
+     * source, what is free today and then the rest on the day it becomes free.
+     */
     suggestions: LeftoverSuggestion[];
+    /** Per source: how much it can move in total from each date (rounded down, growing). */
+    availability: Record<Id, LeftoverStep[]>;
   };
   warnings: PlanWarning[];
 }
@@ -360,24 +371,32 @@ export function planCycle(input: PlanInput): PlanResult {
   }
 
   // --- Leftover --------------------------------------------------------------------
+  // What a source can move from day d without going below its margin until the end:
+  // it only grows with d. The surplus goes in (at most) two installments: what is
+  // already free today, and the rest on the day it becomes free.
   const leftoverAccount = accounts.find((a) => a.receivesLeftover)?.id ?? null;
   const leftoverSuggestions: LeftoverSuggestion[] = [];
+  const availability: Record<Id, LeftoverStep[]> = {};
+  // Rounded down: an optional move is never worth cents, they stay where they are.
+  const floorTo = (a: Cents) => (rounding > 0 ? Math.floor(a / rounding) * rounding : a);
   if (leftoverAccount) {
     for (const src of ids) {
       if (src === leftoverAccount) continue;
-      // Rounded down: an optional move is never worth cents, they stay where they are.
-      const surplus = series(src)[days - 1]! - m(src);
-      const amount = rounding > 0 ? Math.floor(surplus / rounding) * rounding : surplus;
-      if (amount <= 0) continue;
-      let d = todayIdx;
-      while (minOver(src, d, days - 1) - m(src) < amount) d++;
-      leftoverSuggestions.push({
-        fromAccountId: src,
-        toAccountId: leftoverAccount,
-        amountCents: amount,
-        date: dateAt(d),
-        dueDate: end,
-      });
+      const steps: LeftoverStep[] = [];
+      let min = Infinity;
+      const free = new Array<number>(days);
+      for (let d = days - 1; d >= todayIdx; d--) free[d] = Math.max(0, floorTo((min = Math.min(min, series(src)[d]!)) - m(src)));
+      for (let d = todayIdx; d < days; d++)
+        if (free[d]! > (steps.at(-1)?.amountCents ?? 0)) steps.push({ date: dateAt(d), amountCents: free[d]! });
+      if (steps.length === 0) continue;
+      availability[src] = steps;
+      const total = steps.at(-1)!;
+      const first = free[todayIdx]!;
+      const parts: [ISODate, Cents][] = first > 0 && first < total.amountCents
+        ? [[today, first], [total.date, total.amountCents - first]]
+        : [[total.date, total.amountCents]];
+      for (const [date, amountCents] of parts)
+        leftoverSuggestions.push({ fromAccountId: src, toAccountId: leftoverAccount, amountCents, date, dueDate: end });
     }
   }
 
@@ -500,7 +519,31 @@ export function planCycle(input: PlanInput): PlanResult {
       totalCents: totalSeries[j]!,
     })),
     projection,
-    leftover: { totalCents: totalSeries[days - 1]!, toAccountId: leftoverAccount, suggestions: leftoverSuggestions },
+    leftover: {
+      totalCents: totalSeries[days - 1]!,
+      toAccountId: leftoverAccount,
+      suggestions: leftoverSuggestions,
+      availability,
+    },
     warnings,
   };
+}
+
+/**
+ * Fits the leftover moves of one source to its availability when their dates are
+ * changed by hand: each move is cut to what is still free on its day, after the
+ * chosen moves dated before it (same day: earlier in the list). Returns the amounts
+ * in the given order; 0 means nothing is free yet on that day.
+ */
+export function fitLeftover(steps: LeftoverStep[], moves: { date: ISODate; amountCents: Cents; chosen: boolean }[]): Cents[] {
+  const freeOn = (d: ISODate) => steps.filter((s) => s.date <= d).at(-1)?.amountCents ?? 0;
+  const out = new Array<Cents>(moves.length).fill(0);
+  const order = moves.map((_, i) => i).sort((a, b) => (moves[a]!.date < moves[b]!.date ? -1 : moves[a]!.date > moves[b]!.date ? 1 : a - b));
+  let moved = 0;
+  for (const i of order) {
+    const mv = moves[i]!;
+    out[i] = Math.max(0, Math.min(mv.amountCents, freeOn(mv.date) - moved));
+    if (mv.chosen) moved += out[i]!;
+  }
+  return out;
 }
