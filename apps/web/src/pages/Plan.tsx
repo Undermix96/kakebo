@@ -129,6 +129,9 @@ interface BalanceInput {
   asOf: ISODate;
 }
 
+/** Stable sort by day. */
+const byDate = (list: CycleEntry[]) => [...list].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
 let seq = 0;
 const newId = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${(seq++).toString(36)}`;
 
@@ -304,10 +307,23 @@ function Wizard({
   const addEntry = (e: Omit<CycleEntry, 'id' | 'state'>) => {
     const entry: CycleEntry = { ...e, id: newId(e.origin === 'past_movement' ? 'mov' : 'spor'), state: 'pending' };
     touched.current.add(entry.id);
-    setEntries((list) => [...list, entry].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)));
+    setEntries((list) => byDate([...list, entry]));
     setTexts((t) => ({ ...t, [entry.id]: entry.amountCents == null ? '' : money(entry.amountCents) }));
   };
   const removeEntry = (id: string) => setEntries((list) => list.filter((e) => e.id !== id));
+  /** Moves an entry to another day of this cycle only; remembers the day it was planned on. */
+  const moveEntry = (id: string, date: ISODate) => {
+    touched.current.add(id);
+    setEntries((list) =>
+      byDate(
+        list.map((e) => {
+          if (e.id !== id || e.date === date) return e;
+          const planned = e.plannedDate ?? e.date;
+          return { ...e, date, plannedDate: planned === date ? null : planned };
+        }),
+      ),
+    );
+  };
 
   // ---- result ----
   const plan = engine?.plan ?? null;
@@ -515,7 +531,9 @@ function Wizard({
                 itemById={itemById}
                 start={start}
                 endsOn={endsOn}
+                asOfOf={asOfOf}
                 onAmount={setAmount}
+                onMove={moveEntry}
                 onExclude={(e) => {
                   touched.current.add(e.id);
                   if (e.origin === 'catalog') setEntry(e.id, { state: e.state === 'excluded' ? 'pending' : 'excluded' });
@@ -866,7 +884,9 @@ function StepEntries({
   itemById,
   start,
   endsOn,
+  asOfOf,
   onAmount,
+  onMove,
   onExclude,
   onAdd,
 }: {
@@ -879,7 +899,9 @@ function StepEntries({
   itemById: Map<string, Catalog['items'][number]>;
   start: ISODate;
   endsOn: ISODate;
+  asOfOf: (accountId: string) => ISODate;
   onAmount: (id: string, text: string) => void;
+  onMove: (id: string, date: ISODate) => void;
   onExclude: (e: CycleEntry) => void;
   onAdd: (e: Omit<CycleEntry, 'id' | 'state'>) => void;
 }) {
@@ -916,10 +938,7 @@ function StepEntries({
           excluded && 'opacity-50',
         )}
       >
-        <span className="font-mono text-[13px] text-ink-2">
-          <span className="hidden md:inline">{weekdayShort(e.date)} </span>
-          {formatDay(e.date)}
-        </span>
+        <EntryDay entry={e} min={asOfOf(e.accountId)} max={endsOn} disabled={excluded} onMove={(d) => onMove(e.id, d)} />
         <span className="min-w-0">
           <span className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
             <label htmlFor={`voce-${e.id}`} className={cx('text-base font-medium', excluded && 'line-through')}>
@@ -1039,6 +1058,73 @@ function StepEntries({
       )}
       <div className="mt-[18px] border-t-[1.5px] border-ink">{body}</div>
     </>
+  );
+}
+
+/** The day of an entry, as a button that opens the date picker; "era il 15" when moved. */
+function EntryDay({
+  entry: e,
+  min,
+  max,
+  disabled,
+  onMove,
+}: {
+  entry: CycleEntry;
+  min: ISODate;
+  max: ISODate;
+  disabled?: boolean;
+  onMove: (date: ISODate) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  const low = e.date < min ? e.date : min;
+  const open = () => {
+    const el = input.current;
+    if (!el) return;
+    try {
+      el.showPicker();
+    } catch {
+      el.focus();
+    }
+  };
+  return (
+    <span className="relative flex flex-col items-start">
+      <button
+        type="button"
+        onClick={open}
+        disabled={disabled}
+        aria-label={`Giorno di ${e.name}: ${formatDayWeek(e.date)}. Cambia il giorno`}
+        className="min-h-9 cursor-pointer border-0 border-b border-dashed border-rule bg-transparent p-0 text-left font-mono text-[13px] text-ink-2 enabled:hover:text-ink disabled:cursor-default disabled:border-transparent"
+      >
+        <span className="hidden md:inline">{weekdayShort(e.date)} </span>
+        {formatDay(e.date)}
+      </button>
+      {e.plannedDate && e.plannedDate !== e.date && (
+        <button
+          type="button"
+          onClick={() => onMove(e.plannedDate!)}
+          disabled={disabled || e.plannedDate < low || e.plannedDate > max}
+          aria-label={`Rimetti ${e.name} ${toDay(e.plannedDate)}`}
+          title="rimetti al giorno previsto"
+          className="cursor-pointer border-none bg-transparent p-0 text-left text-[11px] text-ink-2 underline disabled:cursor-default disabled:no-underline"
+        >
+          era {theDay(e.plannedDate)}
+        </button>
+      )}
+      <input
+        ref={input}
+        type="date"
+        tabIndex={-1}
+        aria-hidden="true"
+        className="sr-only"
+        value={e.date}
+        min={low}
+        max={max}
+        onChange={(ev) => {
+          const d = ev.target.value;
+          if (d && d >= low && d <= max) onMove(d);
+        }}
+      />
+    </span>
   );
 }
 

@@ -118,6 +118,7 @@ export const cycleEntries = sqliteTable(
     amountCents: integer('amount_cents'),
     state: text('state', { enum: ['pending', 'included_in_balance', 'excluded'] }).notNull(),
     origin: text('origin', { enum: ['catalog', 'sporadic', 'past_movement'] }).notNull(),
+    plannedDate: text('planned_date'),
     ...audit,
   },
   (t) => [

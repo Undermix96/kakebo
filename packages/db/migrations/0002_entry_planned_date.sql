@@ -1,0 +1,1 @@
+ALTER TABLE `cycle_entries` ADD `planned_date` text;

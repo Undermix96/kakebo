@@ -62,6 +62,7 @@ export const cycleEntrySchema = z.object({
   amountCents: positiveCents.nullable(),
   state: z.enum(['pending', 'included_in_balance', 'excluded']),
   origin: z.enum(['catalog', 'sporadic', 'past_movement']),
+  plannedDate: isoDate.nullish(),
 });
 
 export const balanceSchema = z.object({ accountId: id, amountCents: cents, asOf: isoDate });

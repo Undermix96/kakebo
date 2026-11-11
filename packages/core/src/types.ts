@@ -58,6 +58,8 @@ export interface CycleEntry {
   amountCents: Cents | null;
   state: EntryState;
   origin: EntryOrigin;
+  /** Day it was planned on, when it was moved (only for this cycle) or brought forward. */
+  plannedDate?: ISODate | null;
 }
 
 /** Balance of an account on a given day (`asOf`): movements dated before it are assumed to be in it. */

@@ -52,6 +52,15 @@ describe('CycleStore', () => {
     expect(cycles.listCycles()).toHaveLength(1);
   });
 
+  it('keeps the planned day of an entry moved for this cycle only', () => {
+    const { cycles, draft } = setup();
+    const [first, ...rest] = draft.entries;
+    const moved = { ...first!, date: '2026-11-20', plannedDate: first!.date };
+    const saved = cycles.saveDraft(MONTH, { ...draft, entries: [moved, ...rest] }, BY);
+    expect(saved.entries.find((e) => e.id === first!.id)).toMatchObject({ date: '2026-11-20', plannedDate: first!.date });
+    expect(saved.entries.filter((e) => e.id !== first!.id).every((e) => e.plannedDate === null)).toBe(true);
+  });
+
   it('allows the same catalog occurrence in two cycles', () => {
     const { cycles, draft } = setup();
     cycles.saveDraft(MONTH, draft, BY);

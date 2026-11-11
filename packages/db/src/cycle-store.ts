@@ -95,6 +95,7 @@ export class CycleStore {
           amountCents: e.amountCents,
           state: e.state,
           origin: e.origin,
+          plannedDate: e.plannedDate,
         })),
       transfers: trf
         .filter((t) => t.cycleId === r.id)
@@ -167,7 +168,7 @@ export class CycleStore {
       for (const b of d.balances) tx.insert(cycleBalances).values({ cycleId, ...b, createdBy: by, updatedBy: by }).run();
       for (const e of d.entries) {
         tx.insert(cycleEntries)
-          .values({ cycleId, ...e, recurringItemId: e.recurringItemId ?? null, createdBy: by, updatedBy: by })
+          .values({ cycleId, ...e, recurringItemId: e.recurringItemId ?? null, plannedDate: e.plannedDate ?? null, createdBy: by, updatedBy: by })
           .run();
       }
     });
