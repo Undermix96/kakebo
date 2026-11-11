@@ -1,6 +1,7 @@
 import { expect } from 'vitest';
 import { addDays, maxDate } from './dates.ts';
 import type { PlanInput, PlanResult } from './plan.ts';
+import { effectiveAmount, envelopeSpent } from './envelope.ts';
 
 /**
  * Checks the engine's invariants on a result, recomputing balances naively and
@@ -25,10 +26,12 @@ export function checkInvariants(input: PlanInput, plan: PlanResult): void {
   // Naive day-by-day balances match the plan's.
   const balanceAt = (id: string, day: string, withTransfers: boolean) => {
     let v = input.balances.find((b) => b.accountId === id)!.amountCents;
+    const spent = envelopeSpent(input.entries);
     for (const e of input.entries) {
-      if (e.accountId !== id || e.state !== 'pending' || e.amountCents == null) continue;
+      const amount = effectiveAmount(e, spent);
+      if (e.accountId !== id || e.state !== 'pending' || amount == null) continue;
       const d = maxDate(e.date, asOf.get(id)!);
-      if (d <= day && d <= input.end) v += (e.kind === 'income' ? 1 : -1) * e.amountCents;
+      if (d <= day && d <= input.end) v += (e.kind === 'income' ? 1 : -1) * amount;
     }
     if (withTransfers)
       for (const t of all) {

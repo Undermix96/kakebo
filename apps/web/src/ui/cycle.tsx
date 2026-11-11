@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react';
-import { addDays, daysBetween, parseDate, type AccountRecord, type Cents, type CycleEntry, type ISODate } from '@kakebo/core';
+import { addDays, daysBetween, envelopeSpent, parseDate, type AccountRecord, type Cents, type CycleEntry, type ISODate } from '@kakebo/core';
 import { AccountGlyph, accountColor, cx } from './kit.tsx';
 import { formatDay, listJoin, money, ofDay } from '../format.ts';
 
@@ -159,7 +159,9 @@ export function transferWhy(coversEntryIds: string[], entries: CycleEntry[]): st
     .sort((a, b) => (a.date < b.date ? -1 : 1));
   if (covered.length === 0) return '';
   const days = [...new Set(covered.map((e) => e.date))];
-  const names = covered.map((e) => e.name);
+  // An envelope is covered only for what is left of it.
+  const spent = envelopeSpent(entries);
+  const names = covered.map((e) => (spent.has(e.id) ? `${e.name} (quello che resta)` : e.name));
   if (covered.length > 4) return `per ${names.slice(0, 3).join(', ')} e altre ${covered.length - 3} spese`;
   const when = days.length === 1 ? ` ${ofDay(days[0]!)}` : '';
   return `per ${listJoin(names)}${when}`;

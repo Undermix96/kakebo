@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { effectiveAmount, envelopeSpent } from './envelope.ts';
 import type { Cents } from './money.ts';
 import { dateInMonth, daysInMonth, formatDate, formatYearMonth, minDate, monthOf, parseYearMonth, type ISODate, type YearMonth } from './dates.ts';
 import { DEFAULT_END_DAY, occursInMonth } from './cycle.ts';
@@ -133,6 +134,7 @@ export function monthCalendar(ym: YearMonth, src: CalendarSources): CalendarItem
   // Real entries and transfers of the confirmed cycles, on the days they own.
   const fromCycles = new Set<Id>(); // catalog items already shown from a cycle this month
   for (const c of (src.cycles ?? []).filter((c) => c.status === 'confirmed')) {
+    const spent = envelopeSpent(c.entries);
     for (const e of c.entries) {
       if (monthOf(e.date) !== ym || owner(e.date) !== c || e.state === 'excluded') continue;
       if (e.recurringItemId) fromCycles.add(e.recurringItemId);
@@ -142,7 +144,8 @@ export function monthCalendar(ym: YearMonth, src: CalendarSources): CalendarItem
         type: e.kind === 'income' ? 'income' : isSeasonal(item) ? 'deadline' : 'expense',
         name: e.name,
         date: e.date,
-        amountCents: e.amountCents,
+        // An envelope shows what is left of it: what was spent out of it is shown on its own days.
+        amountCents: effectiveAmount(e, spent),
         accountId: e.accountId,
         fromCycle: true,
         refId: e.id,

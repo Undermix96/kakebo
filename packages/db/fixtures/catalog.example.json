@@ -8,7 +8,7 @@
   "items": [
     { "kind": "income", "name": "Stipendio A.", "account": "Banca Viola", "day": 9, "schedule": { "type": "monthly" }, "amountMode": "last", "amountCents": 120000 },
     { "kind": "income", "name": "Stipendio B.", "account": "Conto Giorno", "day": 13, "schedule": { "type": "monthly" }, "amountMode": "last", "amountCents": 140000 },
-    { "kind": "expense", "name": "Spesa", "account": "Carta Spesa", "day": 11, "schedule": { "type": "monthly" }, "amountMode": "last", "amountCents": 50000 },
+    { "kind": "expense", "name": "Spesa", "account": "Carta Spesa", "day": 11, "schedule": { "type": "monthly" }, "amountMode": "last", "amountCents": 50000, "envelope": true },
     { "kind": "expense", "name": "Rata finanziamento", "account": "Banca Viola", "day": 20, "schedule": { "type": "monthly" }, "amountMode": "fixed", "amountCents": 30000 },
     { "kind": "expense", "name": "Affitto", "account": "Banca Blu", "day": 30, "schedule": { "type": "monthly" }, "amountMode": "fixed", "amountCents": 65000 },
     { "kind": "expense", "name": "Carta di credito", "account": "Banca Blu", "day": 3, "schedule": { "type": "monthly" }, "amountMode": "last", "amountCents": 40000, "note": "spese del mese prima + interessi" },

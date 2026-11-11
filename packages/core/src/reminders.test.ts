@@ -23,6 +23,7 @@ const item = (over: Partial<CatalogItem> & Pick<CatalogItem, 'id' | 'name'>): Ca
   activeFrom: null,
   activeTo: null,
   archived: false,
+  envelope: false,
   ...over,
 });
 

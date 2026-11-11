@@ -165,6 +165,24 @@ describe('cycles API', () => {
     expect((await json('DELETE', '/api/cycles/2026-11')).status).toBe(404);
   });
 
+  it('rejects an expense linked to an envelope that is not in the cycle', async () => {
+    const { json, accounts, balances } = await seeded();
+    const spend = {
+      id: 'mov-1',
+      name: 'Farmacia',
+      kind: 'expense',
+      accountId: accounts[0]!.id,
+      date: '2026-11-09',
+      amountCents: 1000,
+      state: 'included_in_balance',
+      origin: 'past_movement',
+      envelopeEntryId: 'nope',
+    };
+    const res = await json('PUT', '/api/cycles/2026-11', { plannedOn: '2026-11-10', endsOn: '2026-12-10', balances, entries: [spend] });
+    expect(res.status).toBe(422);
+    expect(JSON.stringify(await res.json())).toContain('busta');
+  });
+
   it('imports the history and lists debts', async () => {
     const { json } = await seeded();
     const file = {

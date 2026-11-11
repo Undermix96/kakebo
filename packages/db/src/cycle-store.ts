@@ -96,6 +96,7 @@ export class CycleStore {
           state: e.state,
           origin: e.origin,
           plannedDate: e.plannedDate,
+          envelopeEntryId: e.envelopeEntryId,
         })),
       transfers: trf
         .filter((t) => t.cycleId === r.id)
@@ -141,9 +142,18 @@ export class CycleStore {
     this.db.transaction((tx) => {
       this.assertAccounts(tx, [...d.balances.map((b) => b.accountId), ...d.entries.map((e) => e.accountId)]);
       const itemIds = [...new Set(d.entries.map((e) => e.recurringItemId).filter((x): x is string => !!x))];
-      if (itemIds.length) {
-        const found = tx.select({ id: recurringItems.id }).from(recurringItems).where(inArray(recurringItems.id, itemIds)).all();
-        if (found.length !== itemIds.length) throw new StoreError('invalid', 'una delle voci non è più nel catalogo: ricarica la pagina');
+      const found = itemIds.length
+        ? tx.select({ id: recurringItems.id, envelope: recurringItems.envelope }).from(recurringItems).where(inArray(recurringItems.id, itemIds)).all()
+        : [];
+      if (found.length !== itemIds.length) throw new StoreError('invalid', 'una delle voci non è più nel catalogo: ricarica la pagina');
+      // Expenses already made out of an envelope must point to an envelope of the catalog.
+      const envelopes = new Set(found.filter((f) => f.envelope).map((f) => f.id));
+      const entryById = new Map(d.entries.map((e) => [e.id, e]));
+      for (const e of d.entries) {
+        if (!e.envelopeEntryId) continue;
+        const target = entryById.get(e.envelopeEntryId);
+        if (!target?.recurringItemId || !envelopes.has(target.recurringItemId))
+          throw new StoreError('invalid', `«${target?.name ?? e.name}» non è una busta del catalogo`);
       }
 
       let cycle = tx.select().from(cycles).where(eq(cycles.month, month)).get();
@@ -168,7 +178,7 @@ export class CycleStore {
       for (const b of d.balances) tx.insert(cycleBalances).values({ cycleId, ...b, createdBy: by, updatedBy: by }).run();
       for (const e of d.entries) {
         tx.insert(cycleEntries)
-          .values({ cycleId, ...e, recurringItemId: e.recurringItemId ?? null, plannedDate: e.plannedDate ?? null, createdBy: by, updatedBy: by })
+          .values({ cycleId, ...e, recurringItemId: e.recurringItemId ?? null, plannedDate: e.plannedDate ?? null, envelopeEntryId: e.envelopeEntryId ?? null, createdBy: by, updatedBy: by })
           .run();
       }
     });

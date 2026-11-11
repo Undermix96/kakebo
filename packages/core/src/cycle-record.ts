@@ -3,6 +3,7 @@ import type { Cents } from './money.ts';
 import { minDate, type ISODate, type YearMonth } from './dates.ts';
 import type { Account, Balance, CycleEntry, Id, Transfer } from './types.ts';
 import { planCycle, type PlanOptions, type PlanResult } from './plan.ts';
+import { effectiveAmount, envelopeSpent } from './envelope.ts';
 import { balanceSchema, cents, cycleEntrySchema, id, isoDate, positiveCents, yearMonth } from './schemas.ts';
 
 /**
@@ -63,6 +64,16 @@ export const cycleDraftSchema = z
     d.entries.forEach((e, i) => {
       if (ids.has(e.id)) ctx.addIssue({ code: 'custom', message: 'voce ripetuta', path: ['entries', i, 'id'] });
       ids.add(e.id);
+    });
+    const byId = new Map(d.entries.map((e) => [e.id, e]));
+    d.entries.forEach((e, i) => {
+      if (!e.envelopeEntryId) return;
+      const target = byId.get(e.envelopeEntryId);
+      const path = ['entries', i, 'envelopeEntryId'];
+      if (!target || target.id === e.id || target.kind !== 'expense' || target.envelopeEntryId)
+        ctx.addIssue({ code: 'custom', message: 'la busta di questa spesa non è nel ciclo', path });
+      else if (e.kind !== 'expense' || e.origin !== 'past_movement')
+        ctx.addIssue({ code: 'custom', message: 'nella busta vanno solo spese già fatte', path });
     });
   });
 export type CycleDraft = z.infer<typeof cycleDraftSchema>;
@@ -135,16 +146,18 @@ export function planStoredCycle(
   });
 }
 
-/** Totals of a cycle's entries that count (pending ones with an amount). */
+/** Totals of a cycle's entries that count (pending ones with an amount; an envelope for what is left of it). */
 export function cycleTotals(entries: CycleEntry[]): { incomeCents: Cents; expenseCents: Cents; incomes: number; expenses: number } {
   let incomeCents = 0;
   let expenseCents = 0;
   let incomes = 0;
   let expenses = 0;
+  const spent = envelopeSpent(entries);
   for (const e of entries) {
-    if (e.state !== 'pending' || e.amountCents == null) continue;
-    if (e.kind === 'income') [incomeCents, incomes] = [incomeCents + e.amountCents, incomes + 1];
-    else [expenseCents, expenses] = [expenseCents + e.amountCents, expenses + 1];
+    const amount = effectiveAmount(e, spent);
+    if (e.state !== 'pending' || amount == null) continue;
+    if (e.kind === 'income') [incomeCents, incomes] = [incomeCents + amount, incomes + 1];
+    else [expenseCents, expenses] = [expenseCents + amount, expenses + 1];
   }
   return { incomeCents, expenseCents, incomes, expenses };
 }
@@ -166,7 +179,7 @@ export const historyImportSchema = z
         notes: z.string().max(2000).nullish(),
         balances: z.array(z.object({ account: accountName, amountCents: cents, asOf: isoDate })).min(1),
         entries: z.array(
-          cycleEntrySchema.omit({ id: true, accountId: true, recurringItemId: true }).extend({
+          cycleEntrySchema.omit({ id: true, accountId: true, recurringItemId: true, envelopeEntryId: true }).extend({
             account: accountName,
             /** Name of the catalog item it is an occurrence of, if any. */
             item: z.string().nullish(),

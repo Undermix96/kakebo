@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { and, asc, eq, ne, sql } from 'drizzle-orm';
 import {
   ACTIVE_RANGE_MESSAGE,
+  ENVELOPE_MESSAGE,
+  envelopeIsValid,
   DEFAULT_SETTINGS,
   accountCreateSchema,
   activeRangeIsValid,
@@ -61,6 +63,7 @@ const toItem = (r: ItemRow): CatalogItem => ({
   activeFrom: r.activeFrom,
   activeTo: r.activeTo,
   archived: r.archived,
+  envelope: r.envelope,
 });
 
 const nowIso = () => new Date().toISOString();
@@ -175,6 +178,7 @@ export class CatalogStore {
         activeFrom: it.activeFrom ?? null,
         activeTo: it.activeTo ?? null,
         archived: it.archived ?? false,
+        envelope: it.envelope ?? false,
         createdBy: by,
         updatedBy: by,
       })
@@ -186,6 +190,7 @@ export class CatalogStore {
     const current = this.getItem(id);
     const merged = { ...current, ...patch };
     if (!activeRangeIsValid(merged)) throw new StoreError('invalid', ACTIVE_RANGE_MESSAGE);
+    if (!envelopeIsValid(merged)) throw new StoreError('invalid', ENVELOPE_MESSAGE);
     // Restoring or moving an item requires an open account; archived items may keep a closed one.
     if (patch.accountId !== undefined || (patch.archived === false && current.archived)) {
       this.assertUsableAccount(merged.accountId);
@@ -254,6 +259,7 @@ export class CatalogStore {
             activeFrom: it.activeFrom ?? null,
             activeTo: it.activeTo ?? null,
             archived: it.archived ?? false,
+            envelope: it.envelope ?? false,
             createdBy: by,
             updatedBy: by,
           })

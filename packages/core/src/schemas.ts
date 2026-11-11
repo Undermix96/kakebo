@@ -41,16 +41,19 @@ export const recurringItemFields = z.object({
   activeFrom: isoDate.nullish(),
   activeTo: isoDate.nullish(),
   archived: z.boolean().optional(),
+  envelope: z.boolean().optional(),
 });
 
 export const activeRangeIsValid = (i: { activeFrom?: string | null; activeTo?: string | null }) =>
   !i.activeFrom || !i.activeTo || i.activeFrom <= i.activeTo;
 export const ACTIVE_RANGE_MESSAGE = 'la data di fine viene prima di quella di inizio';
 
-export const recurringItemSchema = recurringItemFields.refine(activeRangeIsValid, {
-  message: ACTIVE_RANGE_MESSAGE,
-  path: ['activeTo'],
-});
+export const envelopeIsValid = (i: { kind?: string; envelope?: boolean | null }) => !i.envelope || i.kind === 'expense';
+export const ENVELOPE_MESSAGE = 'solo una spesa può essere una busta';
+
+export const recurringItemSchema = recurringItemFields
+  .refine(activeRangeIsValid, { message: ACTIVE_RANGE_MESSAGE, path: ['activeTo'] })
+  .refine(envelopeIsValid, { message: ENVELOPE_MESSAGE, path: ['envelope'] });
 
 export const cycleEntrySchema = z.object({
   id,
@@ -63,6 +66,7 @@ export const cycleEntrySchema = z.object({
   state: z.enum(['pending', 'included_in_balance', 'excluded']),
   origin: z.enum(['catalog', 'sporadic', 'past_movement']),
   plannedDate: isoDate.nullish(),
+  envelopeEntryId: id.nullish(),
 });
 
 export const balanceSchema = z.object({ accountId: id, amountCents: cents, asOf: isoDate });

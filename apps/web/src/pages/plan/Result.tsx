@@ -89,6 +89,7 @@ export function CycleResult({
   const cash = plan.warnings.filter((w) => w.type === 'cash_shortfall');
   const short = plan.warnings.filter((w) => w.type === 'account_shortfall');
   const missing = plan.warnings.filter((w) => w.type === 'missing_amount');
+  const overspent = plan.warnings.filter((w) => w.type === 'envelope_overspent');
   const entryName = (id: string) => entries.find((e) => e.id === id)?.name ?? id;
   const truth = plan.leftover.totalCents;
 
@@ -208,6 +209,14 @@ export function CycleResult({
               . Non va sotto, ma non ha margine: se una spesa arriva più alta, aggiungi qualcosa al bonifico.
             </Notice>
           ))}
+          {overspent.map((w) =>
+            w.type === 'envelope_overspent' ? (
+              <Notice key={w.entryId}>
+                <strong>La busta {entryName(w.entryId)} è già sforata di {money(w.overCents)} €</strong>: le spese già fatte superano la busta, per il
+                resto del ciclo la conto vuota.
+              </Notice>
+            ) : null,
+          )}
           {missing.length > 0 && (
             <Notice>
               <strong>
@@ -530,9 +539,8 @@ function PhoneAccount({
             ? r.fromAccountId === id
               ? `Bonifico verso ${other(r.toAccountId)}`
               : `Bonifico da ${other(r.fromAccountId)}`
-            : id === 'total'
-              ? `${r.name} · ${other(r.accountId)}`
-              : r.name;
+            : (id === 'total' ? `${r.name} · ${other(r.accountId)}` : r.name) +
+              (r.envelope ? ` · resto della busta (${money(r.envelope.totalCents)} − ${money(r.envelope.spentCents)} già spesi)` : '');
           return (
             <div key={i} className="grid grid-cols-[50px_minmax(0,1fr)_auto] items-baseline gap-x-2.5 border-b border-rule py-[9px]">
               <span className="font-mono text-xs text-ink-2">{formatDay(r.date)}</span>
@@ -622,6 +630,12 @@ function Ledger({ plan, accounts, transfers }: { plan: PlanResult; accounts: Acc
                   </span>
                 )}
                 {!isT && r.originalDate && <span className="text-xs text-ink-2"> · era {ofDay(r.originalDate)}</span>}
+                {!isT && r.envelope && (
+                  <span className="text-xs text-ink-2">
+                    {' '}
+                    · busta {money(r.envelope.totalCents)}, già spesi {money(r.envelope.spentCents)}
+                  </span>
+                )}
               </span>
               {accounts.map((a) => {
                 let v: number | null = null;

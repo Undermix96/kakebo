@@ -57,6 +57,7 @@ export const recurringItems = sqliteTable(
     activeFrom: text('active_from'),
     activeTo: text('active_to'),
     archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
+    envelope: integer('is_envelope', { mode: 'boolean' }).notNull().default(false),
     ...audit,
   },
   (t) => [
@@ -119,6 +120,7 @@ export const cycleEntries = sqliteTable(
     state: text('state', { enum: ['pending', 'included_in_balance', 'excluded'] }).notNull(),
     origin: text('origin', { enum: ['catalog', 'sporadic', 'past_movement'] }).notNull(),
     plannedDate: text('planned_date'),
+    envelopeEntryId: text('envelope_entry_id'),
     ...audit,
   },
   (t) => [

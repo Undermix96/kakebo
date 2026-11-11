@@ -1,6 +1,7 @@
 import type { Cents } from './money.ts';
 import { addDays, daysBetween, maxDate, minDate, type ISODate } from './dates.ts';
 import type { Account, Balance, CycleEntry, Id, Transfer } from './types.ts';
+import { envelopeStatus, envelopeSpent, type EnvelopeStatus } from './envelope.ts';
 
 export interface PlanOptions {
   /** Transfers are rounded up to a multiple of this (0 = exact cents). E.g. 100, 500, 1000. */
@@ -57,8 +58,10 @@ export type ProjectionRow =
       entryId: Id;
       name: string;
       accountId: Id;
-      /** Signed: positive for incomes, negative for expenses. */
+      /** Signed: positive for incomes, negative for expenses (for an envelope, what is left of it). */
       amountCents: Cents;
+      /** Set for an envelope with expenses already made out of it. */
+      envelope?: EnvelopeStatus;
       balances: Record<Id, Cents>;
       totalCents: Cents;
     }
@@ -95,6 +98,8 @@ export interface AccountSummary {
 export type PlanWarning =
   | { type: 'missing_amount'; entryId: Id }
   | { type: 'out_of_cycle'; entryId: Id }
+  /** The expenses made out of an envelope go over it: it counts as empty. */
+  | { type: 'envelope_overspent'; entryId: Id; overCents: Cents }
   /** The total of all accounts is below zero: no transfer can fix it. */
   | { type: 'cash_shortfall'; from: ISODate; to: ISODate; maxDeficitCents: Cents }
   /** Even with transfers the account stays below its margin on these days. */
@@ -190,9 +195,10 @@ export function planCycle(input: PlanInput): PlanResult {
   const warnings: PlanWarning[] = [];
 
   // --- Entries → daily deltas -------------------------------------------------
-  type Placed = { entry: CycleEntry; date: ISODate };
+  type Placed = { entry: CycleEntry; date: ISODate; amountCents: Cents; envelope?: EnvelopeStatus };
   const placed: Placed[] = [];
   const delta = new Map(ids.map((id) => [id, new Array<number>(days).fill(0)]));
+  const spent = envelopeSpent(input.entries);
   for (const e of input.entries) {
     if (!margin.has(e.accountId)) throw new PlanInputError(`entry ${e.id} on unknown account ${e.accountId}`);
     if (e.state !== 'pending') continue;
@@ -207,8 +213,12 @@ export function planCycle(input: PlanInput): PlanResult {
       warnings.push({ type: 'out_of_cycle', entryId: e.id });
       continue;
     }
-    placed.push({ entry: e, date });
-    delta.get(e.accountId)![idx(date)]! += sign(e) * e.amountCents;
+    // An envelope only weighs for what is left of it.
+    const envelope = envelopeStatus(e, spent) ?? undefined;
+    if (envelope && envelope.overCents > 0) warnings.push({ type: 'envelope_overspent', entryId: e.id, overCents: envelope.overCents });
+    const amount = envelope ? envelope.leftCents : e.amountCents;
+    placed.push({ entry: e, date, amountCents: amount, ...(envelope ? { envelope } : {}) });
+    delta.get(e.accountId)![idx(date)]! += sign(e) * amount;
   }
 
   const cumulative = (id: Id): number[] => {
@@ -440,7 +450,7 @@ export function planCycle(input: PlanInput): PlanResult {
       };
     }
     const e = ev.p.entry;
-    const amount = sign(e) * e.amountCents!;
+    const amount = sign(e) * ev.p.amountCents;
     running.set(e.accountId, running.get(e.accountId)! + amount);
     return {
       type: e.kind,
@@ -450,6 +460,7 @@ export function planCycle(input: PlanInput): PlanResult {
       name: e.name,
       accountId: e.accountId,
       amountCents: amount,
+      ...(ev.p.envelope ? { envelope: ev.p.envelope } : {}),
       balances: snapshot(),
       totalCents: totalNow(),
     };

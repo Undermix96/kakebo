@@ -4,6 +4,8 @@ import {
   cycleBounds,
   cycleMonthFor,
   defaultEntryState,
+  envelopeSpent,
+  envelopeStatus,
   fixedTransfersOf,
   generateCycleEntries,
   isYearMonth,
@@ -313,6 +315,28 @@ function Wizard({
     setTexts((t) => ({ ...t, [entry.id]: entry.amountCents == null ? '' : money(entry.amountCents) }));
   };
   const removeEntry = (id: string) => setEntries((list) => list.filter((e) => e.id !== id));
+  // ---- envelopes ("buste"): expenses already made out of them ----
+  const isEnvelope = (e: CycleEntry) => !!e.recurringItemId && !!itemById.get(e.recurringItemId)?.envelope;
+  const envelopes = entries.filter((e) => isEnvelope(e) && e.state !== 'excluded');
+  const spent = envelopeSpent(entries);
+  const addSpend = (s: { envelopeEntryId: string; name: string; accountId: string; date: ISODate; amountCents: number }) => {
+    const entry: CycleEntry = {
+      id: newId('busta'),
+      name: s.name,
+      kind: 'expense',
+      accountId: s.accountId,
+      date: s.date,
+      amountCents: s.amountCents,
+      state: s.date < asOfOf(s.accountId) ? 'included_in_balance' : 'pending',
+      origin: 'past_movement',
+      recurringItemId: null,
+      envelopeEntryId: s.envelopeEntryId,
+    };
+    touched.current.add(entry.id);
+    setEntries((list) => byDate([...list, entry]));
+    setTexts((t) => ({ ...t, [entry.id]: money(s.amountCents) }));
+  };
+
   /** An entry planned later in the cycle already happened: it moves to the real day (and amount). */
   const beforeAnticipate = useRef(new Map<string, number | null>());
   const anticipate = (id: string, date: ISODate, amountCents: number) => {
@@ -551,6 +575,10 @@ function Wizard({
                 asOfOf={asOfOf}
                 today={today}
                 cycleStart={cycleStart}
+                envelopes={envelopes}
+                isEnvelope={isEnvelope}
+                spent={spent}
+                onAddSpend={addSpend}
                 onAnticipate={anticipate}
                 onRestore={restore}
                 onToggle={(e) => {
@@ -573,6 +601,7 @@ function Wizard({
                 start={start}
                 endsOn={endsOn}
                 asOfOf={asOfOf}
+                spent={spent}
                 onAmount={setAmount}
                 onMove={moveEntry}
                 onExclude={(e) => {
@@ -804,6 +833,10 @@ function StepPast({
   asOfOf,
   today,
   cycleStart,
+  envelopes,
+  isEnvelope,
+  spent,
+  onAddSpend,
   onAnticipate,
   onRestore,
   onToggle,
@@ -817,6 +850,10 @@ function StepPast({
   asOfOf: (accountId: string) => ISODate;
   today: ISODate;
   cycleStart: ISODate;
+  envelopes: CycleEntry[];
+  isEnvelope: (e: CycleEntry) => boolean;
+  spent: Map<string, number>;
+  onAddSpend: (s: { envelopeEntryId: string; name: string; accountId: string; date: ISODate; amountCents: number }) => void;
   onAnticipate: (id: string, date: ISODate, amountCents: number) => void;
   onRestore: (id: string) => void;
   onToggle: (e: CycleEntry) => void;
@@ -824,10 +861,11 @@ function StepPast({
   onRemove: (id: string) => void;
 }) {
   const [adding, setAdding] = useState<false | 'movement' | 'entry'>(false);
+  const [envelopeOpen, setEnvelopeOpen] = useState<string | null>(null);
   const past = entries.filter((e) => e.origin !== 'past_movement' && e.state !== 'excluded' && e.date <= asOfOf(e.accountId));
   // Entries still ahead in the cycle that may have happened already.
   const ahead = entries.filter((e) => e.origin !== 'past_movement' && e.state === 'pending' && e.date > asOfOf(e.accountId));
-  const moves = entries.filter((e) => e.origin === 'past_movement');
+  const moves = entries.filter((e) => e.origin === 'past_movement' && !e.envelopeEntryId);
   const todayUnchecked = past.some((e) => e.date === asOfOf(e.accountId) && e.state !== 'included_in_balance');
 
   return (
@@ -919,6 +957,11 @@ function StepPast({
           byId={byId}
           min={cycleStart}
           max={today}
+          isEnvelope={isEnvelope}
+          onEnvelope={(id) => {
+            setAdding(false);
+            setEnvelopeOpen(id);
+          }}
           onAnticipate={(id, date, cents) => {
             onAnticipate(id, date, cents);
             setAdding(false);
@@ -950,9 +993,209 @@ function StepPast({
           </Button>
         </div>
       )}
+
+      <EnvelopeSection
+        envelopes={envelopes}
+        entries={entries}
+        accounts={accounts}
+        byId={byId}
+        spent={spent}
+        min={cycleStart}
+        max={today}
+        openFor={envelopeOpen}
+        onOpen={setEnvelopeOpen}
+        onAdd={onAddSpend}
+        onRemove={onRemove}
+      />
     </>
   );
 }
+
+/** Expenses already made out of the envelopes of the cycle (groceries and pharmacy), one by one. */
+function EnvelopeSection({
+  envelopes,
+  entries,
+  accounts,
+  byId,
+  spent,
+  min,
+  max,
+  openFor,
+  onOpen,
+  onAdd,
+  onRemove,
+}: {
+  envelopes: CycleEntry[];
+  entries: CycleEntry[];
+  accounts: AccountRecord[];
+  byId: Map<string, AccountRecord>;
+  spent: Map<string, number>;
+  min: ISODate;
+  max: ISODate;
+  /** Envelope whose form is open, if any. */
+  openFor: string | null;
+  onOpen: (envelopeId: string | null) => void;
+  onAdd: (spend: { envelopeEntryId: string; name: string; accountId: string; date: ISODate; amountCents: number }) => void;
+  onRemove: (id: string) => void;
+}) {
+  if (envelopes.length === 0) return null;
+  return (
+    <div className="mt-7">
+      <h2 className="m-0 font-display text-lg font-bold">Spese già fatte dalla busta</h2>
+      <p className="mt-1 mb-0 text-[14px] leading-normal text-ink-2">
+        Spesa e farmacia già pagate in questo ciclo, da qualsiasi conto: le tolgo dalla busta e copro solo quello che resta.
+      </p>
+      {envelopes.map((env) => {
+        const status = envelopeStatus(env, spent);
+        const list = entries.filter((e) => e.envelopeEntryId === env.id);
+        const a = byId.get(env.accountId);
+        return (
+          <section key={env.id} aria-label={`Busta ${env.name}`} className="mt-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-ink pb-1.5">
+              <span className="flex items-center gap-2 font-bold">
+                <Glyph account={a} />
+                {env.name} · {a?.name}
+              </span>
+              <span className="font-mono text-[13px] text-ink-2">
+                {env.amountCents == null
+                  ? 'importo della busta da inserire al passo 3'
+                  : status
+                    ? status.overCents > 0
+                      ? `busta ${money(env.amountCents)} · spesi ${money(status.spentCents)} · sforata di ${money(status.overCents)}`
+                      : `busta ${money(env.amountCents)} · spesi ${money(status.spentCents)} · restano ${money(status.leftCents)}`
+                    : `busta ${money(env.amountCents)} · niente speso finora`}
+              </span>
+            </div>
+            {list.map((e) => (
+              <div key={e.id} className="grid min-h-12 grid-cols-[64px_minmax(0,1fr)_auto_auto] items-center gap-x-3.5 border-b border-rule">
+                <span className="font-mono text-sm text-ink-2">{formatDay(e.date)}</span>
+                <span className="min-w-0">
+                  <span className="block font-bold">{e.name}</span>
+                  <span className="flex items-center gap-1.5 text-[13px] text-ink-2">
+                    <Glyph account={byId.get(e.accountId)} />
+                    {byId.get(e.accountId)?.name} · {e.state === 'included_in_balance' ? 'già nel saldo' : 'dopo il saldo: la conto nel ciclo'}
+                  </span>
+                </span>
+                <span className="font-mono font-semibold text-verm">{money(-(e.amountCents ?? 0), true)}</span>
+                <Button variant="danger" onClick={() => onRemove(e.id)} aria-label={`Togli ${e.name}`}>
+                  togli
+                </Button>
+              </div>
+            ))}
+            {openFor === env.id ? (
+              <EnvelopeSpendForm
+                envelope={env}
+                accounts={accounts}
+                min={min}
+                max={max}
+                onAdd={(s) => onAdd({ ...s, envelopeEntryId: env.id })}
+                onClose={() => onOpen(null)}
+              />
+            ) : (
+              <Button variant="dashed" className="mt-3" onClick={() => onOpen(env.id)}>
+                + Spesa già fatta dalla busta
+              </Button>
+            )}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function EnvelopeSpendForm({
+  envelope,
+  accounts,
+  min,
+  max,
+  onAdd,
+  onClose,
+}: {
+  envelope: CycleEntry;
+  accounts: AccountRecord[];
+  min: ISODate;
+  max: ISODate;
+  onAdd: (s: { name: string; accountId: string; date: ISODate; amountCents: number }) => void;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState('');
+  const [accountId, setAccountId] = useState(envelope.accountId);
+  const [date, setDate] = useState(max);
+  const [amount, setAmount] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const first = useRef<HTMLInputElement>(null);
+  useEffect(() => first.current?.focus(), []);
+
+  const add = () => {
+    const cents = readAmount(amount);
+    if (cents == null || cents <= 0) return setError('scrivi un importo maggiore di zero');
+    if (!date || date < min || date > max) return setError(`la data va ${fromDay(min)} ${toDay(max)}`);
+    onAdd({ name: name.trim() || envelope.name, accountId, date, amountCents: cents });
+    // Ready for the next one.
+    setName('');
+    setAmount('');
+    setError(null);
+    first.current?.focus();
+  };
+
+  return (
+    <div
+      className="mt-3.5 rounded-field border-[1.5px] border-ink bg-page px-[18px] pt-[18px] pb-4 motion-safe:animate-open"
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') onClose();
+        if (e.key === 'Enter' && (e.target as HTMLElement).tagName === 'INPUT') {
+          e.preventDefault();
+          add();
+        }
+      }}
+    >
+      <div className="font-display text-lg font-bold">Spesa già fatta dalla busta «{envelope.name}»</div>
+      <div className="mt-3 flex flex-wrap items-end gap-x-4 gap-y-3.5">
+        <label className="flex flex-[2_1_180px] flex-col gap-1 text-xs text-ink-2">
+          cosa (facoltativo)
+          <input ref={first} value={name} onChange={(e) => setName(e.target.value)} placeholder="es. Conad, farmacia" className={cx(inputClass, 'text-base')} />
+        </label>
+        <label className="flex flex-[1_1_130px] flex-col gap-1 text-xs text-ink-2">
+          pagata con
+          <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className={cx(inputClass, 'text-base')}>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-[0_1_150px] flex-col gap-1 text-xs text-ink-2">
+          il giorno
+          <input
+            type="date"
+            value={date}
+            min={min}
+            max={max}
+            onChange={(e) => setDate(e.target.value)}
+            className={cx(inputClass, 'font-mono text-base')}
+          />
+        </label>
+        <label className="flex flex-[1_1_120px] flex-col gap-1 text-xs text-ink-2">
+          importo
+          <AmountField value={amount} onChange={setAmount} placeholder="0,00" className="h-11 border-b-[1.5px] border-solid border-ink text-lg" />
+        </label>
+        <Button variant="primary" onClick={add}>
+          Aggiungi
+        </Button>
+        <Button variant="quiet" onClick={onClose}>
+          Fatto
+        </Button>
+      </div>
+      {error && (
+        <div className="mt-2.5">
+          <ErrorNote error={error} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 // ---------- step 3 ----------
 
@@ -967,6 +1210,7 @@ function StepEntries({
   start,
   endsOn,
   asOfOf,
+  spent,
   onAmount,
   onMove,
   onExclude,
@@ -982,6 +1226,7 @@ function StepEntries({
   start: ISODate;
   endsOn: ISODate;
   asOfOf: (accountId: string) => ISODate;
+  spent: Map<string, number>;
   onAmount: (id: string, text: string) => void;
   onMove: (id: string, date: ISODate) => void;
   onExclude: (e: CycleEntry) => void;
@@ -1002,8 +1247,12 @@ function StepEntries({
     const excluded = e.state === 'excluded';
     const was = item?.amountCents;
     const changed = e.origin === 'catalog' && was != null && e.amountCents != null && e.amountCents !== was;
-    const tag =
-      e.origin === 'sporadic'
+    const envelope = envelopeStatus(e, spent);
+    const tag = e.envelopeEntryId
+      ? `dalla busta ${entries.find((x) => x.id === e.envelopeEntryId)?.name ?? ''}`.trim()
+      : item?.envelope
+        ? 'busta'
+        : e.origin === 'sporadic'
         ? 'sporadica · solo questo ciclo'
         : e.origin === 'past_movement'
           ? 'già avvenuta'
@@ -1068,6 +1317,11 @@ function StepEntries({
             <span className="mt-0.5 text-xs text-verm">importo non valido</span>
           ) : missing && !excluded ? (
             <span className="mt-0.5 text-xs text-verm">importo da inserire</span>
+          ) : envelope && !excluded ? (
+            <span className={cx('mt-0.5 text-right text-xs', envelope.overCents > 0 ? 'text-verm' : 'text-ink-2')}>
+              già spesi {money(envelope.spentCents)} ·{' '}
+              {envelope.overCents > 0 ? `sforata di ${money(envelope.overCents)}` : `restano ${money(envelope.leftCents)}`}
+            </span>
           ) : changed ? (
             <span className="mt-0.5 text-xs text-ink-2">era {money(was!)}</span>
           ) : null}
@@ -1149,6 +1403,8 @@ function AnticipateForm({
   byId,
   min,
   max,
+  isEnvelope,
+  onEnvelope,
   onAnticipate,
   onClose,
 }: {
@@ -1156,6 +1412,8 @@ function AnticipateForm({
   byId: Map<string, AccountRecord>;
   min: ISODate;
   max: ISODate;
+  isEnvelope: (e: CycleEntry) => boolean;
+  onEnvelope: (id: string) => void;
   onAnticipate: (id: string, date: ISODate, amountCents: number) => void;
   onClose: () => void;
 }) {
@@ -1168,13 +1426,15 @@ function AnticipateForm({
   useEffect(() => first.current?.focus(), []);
 
   const pick = (id: string) => {
-    setEntryId(id);
     const e = entries.find((x) => x.id === id);
+    if (e && isEnvelope(e)) return onEnvelope(id);
+    setEntryId(id);
     setAmount(e?.amountCents == null ? '' : money(e.amountCents));
     setError(null);
   };
   const confirm = () => {
     if (!entry) return setError('scegli una voce');
+    if (isEnvelope(entry)) return onEnvelope(entry.id);
     const cents = readAmount(amount);
     if (cents == null || cents <= 0) return setError('scrivi l’importo vero, maggiore di zero');
     if (!date || date < min || date > max) return setError(`la data va ${fromDay(min)} ${toDay(max)}`);
@@ -1203,6 +1463,7 @@ function AnticipateForm({
             {entries.map((e) => (
               <option key={e.id} value={e.id}>
                 {formatDay(e.date)} · {e.name} · {byId.get(e.accountId)?.name}
+                {isEnvelope(e) ? ' · busta: segna le spese già fatte' : ''}
               </option>
             ))}
           </select>

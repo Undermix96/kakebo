@@ -52,6 +52,35 @@ describe('CycleStore', () => {
     expect(cycles.listCycles()).toHaveLength(1);
   });
 
+  it('stores expenses made out of an envelope of the catalog, and only of one', () => {
+    const { cycles, catalog, accounts, items, draft } = setup();
+    const spesa = items.find((i) => i.name === 'Spesa')!;
+    const affitto = items.find((i) => i.name === 'Affitto')!;
+    expect(catalog.updateItem(spesa.id, { envelope: true }, BY).envelope).toBe(true);
+    expect(catalog.getItem(affitto.id).envelope).toBe(false);
+    const stipendio = items.find((i) => i.kind === 'income')!;
+    expect(code(() => catalog.updateItem(stipendio.id, { envelope: true }, BY))).toBe('invalid');
+
+    const envelope = draft.entries.find((e) => e.recurringItemId === spesa.id)!;
+    const linked = (target: string) => ({
+      id: 'mov-1',
+      name: 'Farmacia',
+      kind: 'expense' as const,
+      accountId: accounts[2]!.id,
+      date: '2026-11-09',
+      amountCents: 10000,
+      state: 'included_in_balance' as const,
+      origin: 'past_movement' as const,
+      envelopeEntryId: target,
+    });
+    const saved = cycles.saveDraft(MONTH, { ...draft, entries: [...draft.entries, linked(envelope.id)] }, BY);
+    expect(saved.entries.find((e) => e.id === 'mov-1')?.envelopeEntryId).toBe(envelope.id);
+    expect(saved.entries.find((e) => e.id === envelope.id)?.envelopeEntryId).toBeNull();
+
+    const rent = draft.entries.find((e) => e.recurringItemId === affitto.id)!;
+    expect(code(() => cycles.saveDraft(MONTH, { ...draft, entries: [...draft.entries, linked(rent.id)] }, BY))).toBe('invalid');
+  });
+
   it('keeps the planned day of an entry moved for this cycle only', () => {
     const { cycles, draft } = setup();
     const [first, ...rest] = draft.entries;

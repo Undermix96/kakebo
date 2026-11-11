@@ -41,6 +41,8 @@ export interface RecurringItem {
   activeFrom?: ISODate | null;
   activeTo?: ISODate | null;
   archived?: boolean;
+  /** An envelope ("busta"): a budget spent bit by bit during the cycle. Expenses only. */
+  envelope?: boolean;
 }
 
 export type EntryState = 'pending' | 'included_in_balance' | 'excluded';
@@ -60,6 +62,8 @@ export interface CycleEntry {
   origin: EntryOrigin;
   /** Day it was planned on, when it was moved (only for this cycle) or brought forward. */
   plannedDate?: ISODate | null;
+  /** For an expense already made out of an envelope: the envelope entry (same cycle) it belongs to. */
+  envelopeEntryId?: Id | null;
 }
 
 /** Balance of an account on a given day (`asOf`): movements dated before it are assumed to be in it. */

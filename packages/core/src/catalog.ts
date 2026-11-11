@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { Account, RecurringItem, Schedule } from './types.ts';
 import { DEFAULT_END_DAY } from './cycle.ts';
-import { positiveCents, recurringItemFields, activeRangeIsValid, ACTIVE_RANGE_MESSAGE } from './schemas.ts';
+import { positiveCents, recurringItemFields, activeRangeIsValid, ACTIVE_RANGE_MESSAGE, envelopeIsValid, ENVELOPE_MESSAGE } from './schemas.ts';
 
 /**
  * Stored shapes of the catalog (accounts, recurring items, settings) and the
@@ -53,6 +53,7 @@ export interface CatalogItem extends RecurringItem {
   activeFrom: string | null;
   activeTo: string | null;
   archived: boolean;
+  envelope: boolean;
 }
 
 export interface Settings {
@@ -103,7 +104,9 @@ const itemBody = recurringItemFields.omit({ id: true }).extend({
   category: z.string().trim().max(60).nullish(),
 });
 
-export const itemCreateSchema = itemBody.refine(activeRangeIsValid, { message: ACTIVE_RANGE_MESSAGE, path: ['activeTo'] });
+export const itemCreateSchema = itemBody
+  .refine(activeRangeIsValid, { message: ACTIVE_RANGE_MESSAGE, path: ['activeTo'] })
+  .refine(envelopeIsValid, { message: ENVELOPE_MESSAGE, path: ['envelope'] });
 export type ItemCreate = z.input<typeof itemCreateSchema>;
 
 /** Partial update; the API re-checks the merged item (e.g. the active range). */
@@ -127,10 +130,11 @@ export const catalogImportSchema = z
       .array(accountCreateSchema.extend({ sort: z.number().int() }))
       .min(1),
     items: z.array(
-      itemBody.omit({ accountId: true }).extend({ account: name }).refine(activeRangeIsValid, {
-        message: ACTIVE_RANGE_MESSAGE,
-        path: ['activeTo'],
-      }),
+      itemBody
+        .omit({ accountId: true })
+        .extend({ account: name })
+        .refine(activeRangeIsValid, { message: ACTIVE_RANGE_MESSAGE, path: ['activeTo'] })
+        .refine(envelopeIsValid, { message: ENVELOPE_MESSAGE, path: ['envelope'] }),
     ),
     settings: settingsPatchSchema.optional(),
   })
