@@ -273,6 +273,10 @@ function Wizard({
     const v = readAmount(t);
     return t.trim() !== '' && (v == null || v < 0);
   });
+  // Step 2 shows its own entries; a movement added by hand needs an amount above zero.
+  const pastErrors = entries.filter(
+    (e) => inStepPast(e, asOfOf) && (textErrors.includes(e) || (e.origin === 'past_movement' && !((e.amountCents ?? 0) > 0))),
+  );
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -287,6 +291,12 @@ function Wizard({
       applyDefaultStates();
       void persistThen(2);
     } else if (step === 2) {
+      if (pastErrors.length) {
+        setShowErrors(true);
+        document.getElementById(`passato-${pastErrors[0]!.id}`)?.focus();
+        return;
+      }
+      setShowErrors(false);
       void persistThen(3);
     } else if (step === 3) {
       if (textErrors.length) {
@@ -572,6 +582,9 @@ function Wizard({
                 accounts={accounts}
                 byId={byId}
                 entries={entries}
+                texts={texts}
+                showErrors={showErrors}
+                onAmount={setAmount}
                 asOfOf={asOfOf}
                 today={today}
                 cycleStart={cycleStart}
@@ -825,11 +838,63 @@ function StepBalances({
 
 // ---------- step 2 ----------
 
+/** Entries shown in step 2: those dated up to the balance, plus the ones already happened added there. */
+function inStepPast(e: CycleEntry, asOfOf: (accountId: string) => ISODate) {
+  return e.origin === 'past_movement' || (e.state !== 'excluded' && e.date <= asOfOf(e.accountId));
+}
+
+/** The amount of an entry of step 2, editable as in step 3. */
+function PastAmount({
+  entry: e,
+  text,
+  showErrors,
+  muted,
+  onAmount,
+}: {
+  entry: CycleEntry;
+  text: string;
+  showErrors: boolean;
+  /** Already in the balance: it no longer moves the cycle, so it is quieter. */
+  muted: boolean;
+  onAmount: (text: string) => void;
+}) {
+  const v = readAmount(text);
+  const invalid = text.trim() !== '' && (v == null || v < 0);
+  const required = e.origin === 'past_movement';
+  const missing = !invalid && (required ? !((e.amountCents ?? 0) > 0) : e.amountCents == null);
+  const note = invalid ? 'importo non valido' : missing ? (required ? 'scrivi un importo' : 'importo da inserire') : null;
+  return (
+    <span className="flex flex-col items-end">
+      <span
+        className={cx(
+          'flex items-baseline gap-1 border-b-[1.5px] px-1.5',
+          (invalid || (missing && required)) && showErrors ? 'border-verm' : missing ? 'border-dashed border-verm' : 'border-rule',
+          muted && 'opacity-60 focus-within:opacity-100',
+        )}
+      >
+        <span className={cx('font-mono text-[15px]', e.kind === 'expense' ? 'text-verm' : 'text-ink')}>{e.kind === 'expense' ? '−' : '+'}</span>
+        <AmountField
+          id={`passato-${e.id}`}
+          value={text}
+          onChange={onAmount}
+          aria-label={`Importo di ${e.name}`}
+          placeholder={missing ? 'importo?' : '0,00'}
+          className="h-10 w-[92px] text-[17px] font-semibold md:w-[110px]"
+        />
+      </span>
+      {note && <span className="mt-0.5 text-xs text-verm">{note}</span>}
+    </span>
+  );
+}
+
 function StepPast({
   heading,
   accounts,
   byId,
   entries,
+  texts,
+  showErrors,
+  onAmount,
   asOfOf,
   today,
   cycleStart,
@@ -847,6 +912,9 @@ function StepPast({
   accounts: AccountRecord[];
   byId: Map<string, AccountRecord>;
   entries: CycleEntry[];
+  texts: Record<string, string>;
+  showErrors: boolean;
+  onAmount: (id: string, text: string) => void;
   asOfOf: (accountId: string) => ISODate;
   today: ISODate;
   cycleStart: ISODate;
@@ -867,6 +935,9 @@ function StepPast({
   const ahead = entries.filter((e) => e.origin !== 'past_movement' && e.state === 'pending' && e.date > asOfOf(e.accountId));
   const moves = entries.filter((e) => e.origin === 'past_movement' && !e.envelopeEntryId);
   const todayUnchecked = past.some((e) => e.date === asOfOf(e.accountId) && e.state !== 'included_in_balance');
+  const amount = (e: CycleEntry, muted = false) => (
+    <PastAmount entry={e} text={texts[e.id] ?? ''} showErrors={showErrors} muted={muted} onAmount={(t) => onAmount(e.id, t)} />
+  );
 
   return (
     <>
@@ -881,41 +952,40 @@ function StepPast({
         {past.map((e) => {
           const on = e.state === 'included_in_balance';
           const a = byId.get(e.accountId);
-          const signed = e.kind === 'income' ? (e.amountCents ?? 0) : -(e.amountCents ?? 0);
           return (
-            <label
+            <div
               key={e.id}
-              className="grid min-h-[60px] cursor-pointer grid-cols-[30px_64px_minmax(0,1fr)_auto] items-center gap-x-3.5 border-b border-rule py-2"
+              className="grid min-h-[60px] grid-cols-[30px_64px_minmax(0,1fr)_auto] items-center gap-x-3.5 border-b border-rule py-2"
             >
-              <input type="checkbox" checked={on} onChange={() => onToggle(e)} className="m-0 size-6 accent-(--k-ink)" />
-              <span className="font-mono text-sm text-ink-2">{formatDay(e.date)}</span>
-              <span className="min-w-0">
-                <span className="block text-base font-bold">{e.name}</span>
-                <span className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[13px] text-ink-2">
-                  <Glyph account={a} />
-                  {a?.name} · {on ? 'già nel saldo' : 'non ancora addebitata: la conto nel ciclo'}
-                  {e.plannedDate && e.plannedDate > e.date && (
-                    <>
-                      {' · '}anticipata, era {theDay(e.plannedDate)}
-                      <button
-                        type="button"
-                        onClick={(ev) => {
-                          ev.preventDefault();
-                          onRestore(e.id);
-                        }}
-                        aria-label={`Rimetti ${e.name} ${toDay(e.plannedDate)}`}
-                        className="min-h-8 cursor-pointer border-none bg-transparent p-0 text-[13px] text-ink-2 underline"
-                      >
-                        rimetti
-                      </button>
-                    </>
-                  )}
+              <label className="contents cursor-pointer">
+                <input type="checkbox" checked={on} onChange={() => onToggle(e)} className="m-0 size-6 cursor-pointer accent-(--k-ink)" />
+                <span className="font-mono text-sm text-ink-2">{formatDay(e.date)}</span>
+                <span className="min-w-0">
+                  <span className="block text-base font-bold">{e.name}</span>
+                  <span className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[13px] text-ink-2">
+                    <Glyph account={a} />
+                    {a?.name} · {on ? 'già nel saldo' : 'non ancora addebitata: la conto nel ciclo'}
+                    {e.plannedDate && e.plannedDate > e.date && (
+                      <>
+                        {' · '}anticipata, era {theDay(e.plannedDate)}
+                        <button
+                          type="button"
+                          onClick={(ev) => {
+                            ev.preventDefault();
+                            onRestore(e.id);
+                          }}
+                          aria-label={`Rimetti ${e.name} ${toDay(e.plannedDate)}`}
+                          className="min-h-8 cursor-pointer border-none bg-transparent p-0 text-[13px] text-ink-2 underline"
+                        >
+                          rimetti
+                        </button>
+                      </>
+                    )}
+                  </span>
                 </span>
-              </span>
-              <span className={cx('font-mono text-lg font-semibold', signed < 0 ? 'text-verm' : 'text-ink', on && 'opacity-45')}>
-                {e.amountCents == null ? '—' : money(signed, true)}
-              </span>
-            </label>
+              </label>
+              {amount(e, on)}
+            </div>
           );
         })}
       </div>
@@ -939,9 +1009,7 @@ function StepPast({
                     {byId.get(e.accountId)?.name}
                   </span>
                 </span>
-                <span className={cx('font-mono font-semibold', e.kind === 'expense' && 'text-verm')}>
-                  {money(e.kind === 'income' ? e.amountCents! : -e.amountCents!, true)}
-                </span>
+                {amount(e)}
                 <Button variant="danger" onClick={() => onRemove(e.id)} aria-label={`Togli ${e.name}`}>
                   togli
                 </Button>
@@ -1006,6 +1074,7 @@ function StepPast({
         onOpen={setEnvelopeOpen}
         onAdd={onAddSpend}
         onRemove={onRemove}
+        amount={amount}
       />
     </>
   );
@@ -1024,6 +1093,7 @@ function EnvelopeSection({
   onOpen,
   onAdd,
   onRemove,
+  amount,
 }: {
   envelopes: CycleEntry[];
   entries: CycleEntry[];
@@ -1037,6 +1107,8 @@ function EnvelopeSection({
   onOpen: (envelopeId: string | null) => void;
   onAdd: (spend: { envelopeEntryId: string; name: string; accountId: string; date: ISODate; amountCents: number }) => void;
   onRemove: (id: string) => void;
+  /** The editable amount of a spend. */
+  amount: (e: CycleEntry) => ReactNode;
 }) {
   if (envelopes.length === 0) return null;
   return (
@@ -1076,7 +1148,7 @@ function EnvelopeSection({
                     {byId.get(e.accountId)?.name} · {e.state === 'included_in_balance' ? 'già nel saldo' : 'dopo il saldo: la conto nel ciclo'}
                   </span>
                 </span>
-                <span className="font-mono font-semibold text-verm">{money(-(e.amountCents ?? 0), true)}</span>
+                {amount(e)}
                 <Button variant="danger" onClick={() => onRemove(e.id)} aria-label={`Togli ${e.name}`}>
                   togli
                 </Button>
