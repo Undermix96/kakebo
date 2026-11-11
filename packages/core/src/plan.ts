@@ -262,6 +262,10 @@ export function planCycle(input: PlanInput): PlanResult {
     planned.push({ ...t, date, needDate: date, coversEntryIds: [], kind: 'cover', fixed: true });
   }
 
+  // With rounding, a first sweep only makes rounded transfers; what is left short is
+  // closed by a second sweep that may also use exact cents (so nothing stays uncovered).
+  let allowExact = rounding === 0;
+
   const covers = (accountId: Id, from: number, to: number): Id[] =>
     placed
       .filter((p) => p.entry.accountId === accountId && p.entry.kind === 'expense')
@@ -283,15 +287,24 @@ export function planCycle(input: PlanInput): PlanResult {
     })();
 
     while (amount > 0) {
+      const target = roundUp(amount, rounding);
+      // Prefer a tidy transfer: first a source that can give the whole rounded amount,
+      // then one that can give a rounded part of it (the rest comes from another source
+      // on the next round, and the cents stay where they are). Only when no source can
+      // give a rounded figure does the transfer go out in exact cents.
       let best: Id | null = null;
       let bestAvail = 0;
-      for (const src of ids) {
-        if (src === dest) continue;
-        const a = avail(src, windowEnd);
-        if (a > bestAvail) [best, bestAvail] = [src, a];
+      let x = 0;
+      for (const pass of rounding > 0 ? (allowExact ? [0, 1, 2] : [0, 1]) : [2]) {
+        for (const src of ids) {
+          if (src === dest) continue;
+          const a = avail(src, windowEnd);
+          const give = pass === 0 ? (a >= target ? target : 0) : pass === 1 ? Math.floor(a / rounding) * rounding : Math.min(target, a);
+          if (give > 0 && a > bestAvail) [best, bestAvail, x] = [src, a, give];
+        }
+        if (best !== null) break;
       }
       if (best === null) break;
-      const x = Math.min(roundUp(amount, rounding), bestAvail);
       const dueDate = dateAt(windowEnd);
       const coverIds = covers(dest, need, coverTo);
 
@@ -332,14 +345,17 @@ export function planCycle(input: PlanInput): PlanResult {
     return Math.max(0, amount);
   };
 
-  for (let i = todayIdx; i < days && input.options?.suggest !== false; i++) {
-    const windows = [...new Set([Math.max(todayIdx, i - lead), i])];
-    for (const dest of ids) {
-      if (series(dest)[i]! >= m(dest)) continue;
-      let need = m(dest) - minOver(dest, i, days - 1);
-      for (const w of windows) if (need > 0) need = cover(dest, i, need, w, 'cover');
-      let deficit = m(dest) - series(dest)[i]!;
-      for (const w of windows) if (deficit > 0) deficit = cover(dest, i, deficit, w, 'bridge');
+  for (const exact of rounding > 0 ? [false, true] : [true]) {
+    allowExact = exact;
+    for (let i = todayIdx; i < days && input.options?.suggest !== false; i++) {
+      const windows = [...new Set([Math.max(todayIdx, i - lead), i])];
+      for (const dest of ids) {
+        if (series(dest)[i]! >= m(dest)) continue;
+        let need = m(dest) - minOver(dest, i, days - 1);
+        for (const w of windows) if (need > 0) need = cover(dest, i, need, w, 'cover');
+        let deficit = m(dest) - series(dest)[i]!;
+        for (const w of windows) if (deficit > 0) deficit = cover(dest, i, deficit, w, 'bridge');
+      }
     }
   }
 
@@ -349,7 +365,9 @@ export function planCycle(input: PlanInput): PlanResult {
   if (leftoverAccount) {
     for (const src of ids) {
       if (src === leftoverAccount) continue;
-      const amount = series(src)[days - 1]! - m(src);
+      // Rounded down: an optional move is never worth cents, they stay where they are.
+      const surplus = series(src)[days - 1]! - m(src);
+      const amount = rounding > 0 ? Math.floor(surplus / rounding) * rounding : surplus;
       if (amount <= 0) continue;
       let d = todayIdx;
       while (minOver(src, d, days - 1) - m(src) < amount) d++;

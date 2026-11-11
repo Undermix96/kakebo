@@ -204,6 +204,23 @@ describe('planCycle: transfers', () => {
     expect(run(base({ entries: tight, options: { roundingCents: 1000 } })).transfers[0]!.amountCents).toBe(20600);
   });
 
+  it('keeps the cents in the source and asks a later transfer for the rest', () => {
+    const plan = run(
+      base({
+        accounts: [account('a', 1), account('b', 2), account('c', 3)],
+        balances: [
+          { accountId: 'a', amountCents: 0, asOf: '2026-11-10' },
+          { accountId: 'b', amountCents: 129440, asOf: '2026-11-10' },
+          { accountId: 'c', amountCents: 0, asOf: '2026-11-10' },
+        ],
+        entries: [entry('a', '2026-11-20', -129598), entry('c', '2026-11-15', 50000), entry('c', '2026-11-30', -9972)],
+        options: { roundingCents: 100 },
+      }),
+    );
+    expect(plan.transfers.every((t) => t.amountCents % 100 === 0)).toBe(true);
+    expect(plan.warnings).toEqual([]);
+  });
+
   it('falls back to a same-day transfer when the money only arrives on the day of the expense', () => {
     const plan = run(base({ entries: [entry('b', '2026-11-20', 1000), entry('a', '2026-11-20', -400)] }));
     expect(plan.transfers).toEqual([expect.objectContaining({ date: '2026-11-20', dueDate: '2026-11-20' })]);
