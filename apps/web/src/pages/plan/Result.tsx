@@ -21,7 +21,7 @@ import {
   inkScale,
   transferWhy,
 } from '../../ui/cycle.tsx';
-import { formatDay, money, monthName, relativeDay, fromDay, ofDay, toDay, theDay } from '../../format.ts';
+import { formatDay, listJoin, money, monthName, relativeDay, fromDay, ofDay, toDay, theDay } from '../../format.ts';
 
 /** A transfer as shown: stored (with an id) or just suggested by the engine. */
 export interface ViewTransfer {
@@ -197,6 +197,12 @@ export function CycleResult({
                         {adv ? (
                           <>
                             {fromDay(adv.date)}, entro {theDay(end)}
+                            {adv.after.map((t) => (
+                              <span key={`${t.fromAccountId}>${t.toAccountId}`} className="block">
+                                dopo il bonifico {byId.get(t.fromAccountId)?.name} → {lender?.name} di {money(t.amountCents)} €, da fare entro{' '}
+                                {theDay(adv.date)}
+                              </span>
+                            ))}
                             <span className="block">
                               poi {byId.get(l.fromAccountId)?.name} lo rimette su {lender?.name} {fromDay(adv.returnDate)}, entro{' '}
                               {theDay(adv.returnDueDate)}
@@ -245,8 +251,10 @@ export function CycleResult({
                         className="size-4 flex-none accent-(--k-ink)"
                       />
                       <span>
-                        anticipalo {fromDay(l.advance.date)} da {lender?.name}: due bonifici invece di uno, a {lender?.name} quei soldi servono
-                        solo {fromDay(l.advance.returnDueDate)}
+                        anticipalo {fromDay(l.advance.date)} da {lender?.name}
+                        {l.advance.after.length > 0 &&
+                          ` (dopo ${listJoin(l.advance.after.map((t) => `il bonifico ${byId.get(t.fromAccountId)?.name ?? ''} → ${lender?.name ?? ''}`))})`}
+                        : due bonifici invece di uno, a {lender?.name} quei soldi servono solo {fromDay(l.advance.returnDueDate)}
                       </span>
                     </label>
                   )}

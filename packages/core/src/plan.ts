@@ -109,8 +109,8 @@ export interface LeftoverSuggestion extends Transfer {}
 
 /**
  * A leftover installment brought forward through another account: `lenderAccountId`
- * sends it to the leftover account on `date` (today), and the source gives it back
- * to the lender from `returnDate` (when its money frees up), by `returnDueDate`.
+ * sends it to the leftover account from `date`, and the source gives it back to the
+ * lender from `returnDate` (when its money frees up), by `returnDueDate`.
  */
 export interface LeftoverAdvance {
   /** Index in `leftover.suggestions`. */
@@ -120,6 +120,11 @@ export interface LeftoverAdvance {
   date: ISODate;
   returnDate: ISODate;
   returnDueDate: ISODate;
+  /**
+   * Suggested transfers into the lender the advance relies on: they must be made
+   * first, by `date` at the latest.
+   */
+  after: { fromAccountId: Id; toAccountId: Id; amountCents: Cents; date: ISODate }[];
 }
 
 /** From `date` on, the source can move up to `amountCents` (in total) to the leftover account. */
@@ -420,10 +425,11 @@ export function planCycle(input: PlanInput): PlanResult {
     }
   }
 
-  // An installment that is not free today can be lent by another account that holds
-  // money it does not need until the installment's day: it sends it today and gets
-  // it back from the source then. Checked assuming every other suggestion is taken,
-  // and without counting the suggested transfers the lender is still waiting for.
+  // An installment that is not free yet can be lent by another account that holds
+  // money it does not need until the installment's day: it sends it as soon as it
+  // has it and gets it back from the source then. Checked assuming every other
+  // suggestion is taken. When the lender only has the money thanks to a suggested
+  // transfer into it, that transfer has to be made first (`after`).
   const advances: LeftoverAdvance[] = [];
   if (leftoverAccount) {
     const work = new Map(ids.map((id) => [id, [...series(id)]]));
@@ -431,42 +437,59 @@ export function planCycle(input: PlanInput): PlanResult {
       const w = work.get(id)!;
       for (let j = from; j < days; j++) w[j]! += amount;
     };
+    const incomingTo = (l: Id) => planned.filter((t) => !t.fixed && t.toAccountId === l);
     for (const s of leftoverSuggestions) move(s.fromAccountId, idx(s.date), -s.amountCents);
     leftoverSuggestions.forEach((s, i) => {
       const ret = idx(s.date);
       if (ret <= todayIdx) return;
-      let lender: Id | null = null;
-      let room = 0;
+      const x = s.amountCents;
+      type Option = { lender: Id; day: number; relies: boolean; room: number };
+      let best: Option | null = null;
       for (const l of ids) {
         if (l === s.fromAccountId || l === leftoverAccount) continue;
         const w = work.get(l)!;
-        // Only money the lender already holds: a suggested transfer into it may be
-        // made later than its first possible day.
-        const incoming = (j: number) =>
-          planned.filter((t) => !t.fixed && t.toAccountId === l && idx(t.date) <= j).reduce((sum, t) => sum + t.amountCents, 0);
-        let min = Infinity;
-        for (let j = todayIdx; j < ret; j++) min = Math.min(min, w[j]! - incoming(j));
-        const a = min - m(l);
-        if (a >= s.amountCents && a > room) [lender, room] = [l, a];
+        const incoming = incomingTo(l);
+        const own = (j: number) => w[j]! - incoming.filter((t) => idx(t.date) <= j).reduce((sum, t) => sum + t.amountCents, 0);
+        // Room from day d until the money comes back (availability only grows with d).
+        const room = (d: number, v: (j: number) => number) => {
+          let min = Infinity;
+          for (let j = d; j < ret; j++) min = Math.min(min, v(j));
+          return min - m(l);
+        };
+        let day = todayIdx;
+        while (day < ret && room(day, (j) => w[j]!) < x) day++;
+        if (day >= ret) continue;
+        const option = { lender: l, day, relies: room(day, own) < x, room: room(day, (j) => w[j]!) };
+        const better =
+          !best ||
+          option.day < best.day ||
+          (option.day === best.day && (option.relies !== best.relies ? !option.relies : option.room > best.room));
+        if (better) best = option;
       }
-      if (lender === null) return;
+      if (!best) return;
+      const { lender, day } = best;
       // The lender would go below its margin from this day on without the money back.
       const w = work.get(lender)!;
       let due = days - 1;
       for (let j = ret; j < days; j++)
-        if (w[j]! - s.amountCents < m(lender)) {
+        if (w[j]! - x < m(lender)) {
           due = j;
           break;
         }
-      move(lender, todayIdx, -s.amountCents);
-      move(lender, ret, s.amountCents);
+      move(lender, day, -x);
+      move(lender, ret, x);
       advances.push({
         suggestion: i,
         lenderAccountId: lender,
-        amountCents: s.amountCents,
-        date: today,
+        amountCents: x,
+        date: dateAt(day),
         returnDate: s.date,
         returnDueDate: dateAt(due),
+        after: best.relies
+          ? incomingTo(lender)
+              .filter((t) => idx(t.date) <= day)
+              .map((t) => ({ fromAccountId: t.fromAccountId, toAccountId: t.toAccountId, amountCents: t.amountCents, date: t.date }))
+          : [],
       });
     });
   }

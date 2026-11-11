@@ -444,6 +444,17 @@ function Wizard({
         }),
       );
     }
+    // An advance that relies on a suggested transfer into the lender needs that
+    // transfer made first: its deadline moves to the day of the advance.
+    for (const l of leftover) {
+      if (!l.chosen || !l.advanced || !l.advance) continue;
+      for (const a of l.advance.after) {
+        const t = viewTransfers.find(
+          (v) => !v.locked && v.fromAccountId === a.fromAccountId && v.toAccountId === a.toAccountId && v.date === a.date,
+        );
+        if (t && l.advance.date < t.dueDate) t.dueDate = l.advance.date;
+      }
+    }
     const chosen: Transfer[] = leftover.filter((l) => l.chosen).flatMap((l) => leftoverTransfers(l, endsOn));
     finalPlan = planCycle({
       accounts,

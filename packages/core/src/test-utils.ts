@@ -88,8 +88,12 @@ export function checkInvariants(input: PlanInput, plan: PlanResult): void {
   const moves = plan.leftover.suggestions.flatMap((s, i) => {
     const adv = plan.leftover.advances.find((a) => a.suggestion === i);
     if (!adv) return [{ from: s.fromAccountId, to: s.toAccountId, amount: s.amountCents, date: s.date }];
-    expect(adv.date).toBe(input.today);
+    expect(adv.date >= input.today && adv.date < adv.returnDate).toBe(true);
     expect(adv.returnDate).toBe(s.date);
+    for (const t of adv.after) {
+      expect(t.toAccountId).toBe(adv.lenderAccountId);
+      expect(t.date <= adv.date).toBe(true);
+    }
     expect(adv.returnDate <= adv.returnDueDate).toBe(true);
     expect([s.fromAccountId, s.toAccountId]).not.toContain(adv.lenderAccountId);
     return [

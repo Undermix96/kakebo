@@ -391,7 +391,15 @@ describe('planCycle: cash warnings and leftover', () => {
       { fromAccountId: 'a', toAccountId: 'ing', amountCents: 800, date: '2026-11-25', dueDate: '2026-12-10' },
     ]);
     expect(plan.leftover.advances).toEqual([
-      { suggestion: 1, lenderAccountId: 'w', amountCents: 800, date: '2026-11-10', returnDate: '2026-11-25', returnDueDate: '2026-12-05' },
+      {
+        suggestion: 1,
+        lenderAccountId: 'w',
+        amountCents: 800,
+        date: '2026-11-10',
+        returnDate: '2026-11-25',
+        returnDueDate: '2026-12-05',
+        after: [],
+      },
     ]);
   });
 
@@ -411,22 +419,33 @@ describe('planCycle: cash warnings and leftover', () => {
     expect(plan.leftover.advances).toEqual([]);
   });
 
-  it('does not lend money the lender is still waiting for', () => {
+  it('lends money the lender is still waiting for, once that transfer is made', () => {
     const plan = run(
       base({
         accounts: [account('a', 1), account('w', 2), account('c', 3), account('ing', 4, { receivesLeftover: true })],
         balances: [
           { accountId: 'a', amountCents: 0, asOf: '2026-11-10' },
           { accountId: 'w', amountCents: 0, asOf: '2026-11-10' },
-          { accountId: 'c', amountCents: 1000, asOf: '2026-11-10' },
-          { accountId: 'ing', amountCents: 1000, asOf: '2026-11-10' },
+          { accountId: 'c', amountCents: 0, asOf: '2026-11-10' },
+          { accountId: 'ing', amountCents: 0, asOf: '2026-11-10' },
         ],
-        // w gets 1000 from c to pay on 5 Dec: it must not lend it before having it.
-        entries: [entry('a', '2026-11-25', 800), entry('w', '2026-12-05', -1000), entry('ing', '2026-11-11', -1000)],
+        // c gets paid on the 12th and covers w, that only spends on 5 Dec.
+        entries: [entry('a', '2026-11-25', 800), entry('c', '2026-11-12', 1000), entry('w', '2026-12-05', -1000)],
       }),
     );
-    expect(plan.transfers.some((t) => t.toAccountId === 'w')).toBe(true);
-    expect(plan.leftover.advances.filter((a) => a.lenderAccountId === 'w')).toEqual([]);
+    const cover = plan.transfers.find((t) => t.fromAccountId === 'c' && t.toAccountId === 'w')!;
+    expect(cover.date).toBe('2026-11-12');
+    expect(plan.leftover.advances).toEqual([
+      {
+        suggestion: 0,
+        lenderAccountId: 'w',
+        amountCents: 800,
+        date: '2026-11-12',
+        returnDate: '2026-11-25',
+        returnDueDate: '2026-12-05',
+        after: [{ fromAccountId: 'c', toAccountId: 'w', amountCents: 1000, date: '2026-11-12' }],
+      },
+    ]);
   });
 
   it('suggests nothing when the source has no surplus', () => {
