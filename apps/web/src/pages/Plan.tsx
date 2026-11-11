@@ -185,6 +185,7 @@ function Wizard({
   const [stamps, setStamps] = useState<Record<string, ISODate>>({});
   const [leftoverOn, setLeftoverOn] = useState<Set<string>>(new Set());
   const [leftoverDates, setLeftoverDates] = useState<Record<string, ISODate>>({});
+  const [leftoverAdvanced, setLeftoverAdvanced] = useState<Set<string>>(new Set());
   const [saveError, setSaveError] = useState<unknown>(null);
   const [pendingStep, setPendingStep] = useState<Step | null>(null);
   const [showErrors, setShowErrors] = useState(false);
@@ -415,10 +416,14 @@ function Wizard({
     const sources = [...new Set(plan.leftover.suggestions.map((s) => s.fromAccountId))];
     for (const src of sources) {
       const parts = plan.leftover.suggestions
-        .filter((s) => s.fromAccountId === src)
-        .map((s, i) => {
+        .map((s, at) => ({ s, at }))
+        .filter(({ s }) => s.fromAccountId === src)
+        .map(({ s, at }, i) => {
           const key = `resto>${src}#${i}`;
-          return { key, s, date: leftoverDates[key] ?? s.date, chosen: leftoverOn.has(key) };
+          const advance = plan.leftover.advances.find((a) => a.suggestion === at);
+          const advanced = !!advance && leftoverAdvanced.has(key);
+          // Advanced: the source still pays on its own day (to the lender).
+          return { key, s, advance, advanced, date: advanced ? s.date : (leftoverDates[key] ?? s.date), chosen: leftoverOn.has(key) };
         });
       const fit = fitLeftover(
         plan.leftover.availability[src] ?? [],
@@ -434,12 +439,12 @@ function Wizard({
           date: p.date,
           suggestedDate: p.s.date,
           chosen: p.chosen && fit[i]! > 0,
+          ...(p.advance ? { advance: p.advance } : {}),
+          advanced: p.advanced,
         }),
       );
     }
-    const chosen: Transfer[] = leftover
-      .filter((l) => l.chosen)
-      .map((l) => ({ fromAccountId: l.fromAccountId, toAccountId: l.toAccountId, amountCents: l.amountCents, date: l.date, dueDate: endsOn }));
+    const chosen: Transfer[] = leftover.filter((l) => l.chosen).flatMap((l) => leftoverTransfers(l, endsOn));
     finalPlan = planCycle({
       accounts,
       balances: parsedBalances as { accountId: string; amountCents: number; asOf: ISODate }[],
@@ -460,15 +465,8 @@ function Wizard({
         ...viewTransfers.filter((t) => !t.locked),
         ...leftover
           .filter((l) => l.chosen)
-          .map((l) => ({
-            fromAccountId: l.fromAccountId,
-            toAccountId: l.toAccountId,
-            amountCents: l.amountCents,
-            date: l.date,
-            dueDate: endsOn,
-            doneOn: stamps[l.key] ?? null,
-            coversEntryIds: [],
-          })),
+          .flatMap((l) => leftoverTransfers(l, endsOn))
+          .map((t) => ({ ...t, doneOn: null, coversEntryIds: [] })),
       ].map((t) => ({
         fromAccountId: t.fromAccountId,
         toAccountId: t.toAccountId,
@@ -580,6 +578,14 @@ function Wizard({
                 })
               }
               onLeftoverDate={(key, date) => setLeftoverDates((d) => ({ ...d, [key]: date }))}
+              onLeftoverAdvance={(key) =>
+                setLeftoverAdvanced((s) => {
+                  const n = new Set(s);
+                  if (n.has(key)) n.delete(key);
+                  else n.add(key);
+                  return n;
+                })
+              }
               status={
                 <>
                   passo 4 di 4
@@ -1792,3 +1798,14 @@ function EntryForm({
   );
 }
 
+/** The transfers of a chosen leftover move: one, or two when it goes through a lender. */
+function leftoverTransfers(l: LeftoverChoice, endsOn: ISODate): Transfer[] {
+  if (l.advanced && l.advance) {
+    const a = l.advance;
+    return [
+      { fromAccountId: a.lenderAccountId, toAccountId: l.toAccountId, amountCents: a.amountCents, date: a.date, dueDate: endsOn },
+      { fromAccountId: l.fromAccountId, toAccountId: a.lenderAccountId, amountCents: a.amountCents, date: a.returnDate, dueDate: a.returnDueDate },
+    ];
+  }
+  return [{ fromAccountId: l.fromAccountId, toAccountId: l.toAccountId, amountCents: l.amountCents, date: l.date, dueDate: endsOn }];
+}

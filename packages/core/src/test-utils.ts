@@ -82,4 +82,27 @@ export function checkInvariants(input: PlanInput, plan: PlanResult): void {
     }
   }
   for (const s of plan.leftover.suggestions) expect(plan.leftover.availability[s.fromAccountId]).toBeDefined();
+
+  // Taking every leftover move, each advanced through its lender, leaves nobody
+  // lower than they were and below their margin.
+  const moves = plan.leftover.suggestions.flatMap((s, i) => {
+    const adv = plan.leftover.advances.find((a) => a.suggestion === i);
+    if (!adv) return [{ from: s.fromAccountId, to: s.toAccountId, amount: s.amountCents, date: s.date }];
+    expect(adv.date).toBe(input.today);
+    expect(adv.returnDate).toBe(s.date);
+    expect(adv.returnDate <= adv.returnDueDate).toBe(true);
+    expect([s.fromAccountId, s.toAccountId]).not.toContain(adv.lenderAccountId);
+    return [
+      { from: adv.lenderAccountId, to: s.toAccountId, amount: adv.amountCents, date: adv.date },
+      { from: s.fromAccountId, to: adv.lenderAccountId, amount: adv.amountCents, date: adv.returnDate },
+    ];
+  });
+  for (const row of plan.daily) {
+    if (row.date < input.today) continue;
+    for (const id of ids) {
+      let v = row.balances[id]!;
+      for (const mv of moves) if (mv.date <= row.date) v += (mv.to === id ? mv.amount : 0) - (mv.from === id ? mv.amount : 0);
+      if (v < row.balances[id]!) expect(v, `${id} on ${row.date} with every leftover move`).toBeGreaterThanOrEqual(margin.get(id)!);
+    }
+  }
 }

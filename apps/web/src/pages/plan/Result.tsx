@@ -5,6 +5,7 @@ import {
   type AccountRecord,
   type CycleEntry,
   type ISODate,
+  type LeftoverAdvance,
   type PlanResult,
   type YearMonth,
 } from '@kakebo/core';
@@ -47,6 +48,9 @@ export interface LeftoverChoice {
   date: ISODate;
   suggestedDate: ISODate;
   chosen: boolean;
+  /** Another account can send it today and get it back from the source later. */
+  advance?: LeftoverAdvance;
+  advanced: boolean;
 }
 
 /** Is the cycle tight? Less than a tenth of its expenses left at the end. */
@@ -68,6 +72,7 @@ export function CycleResult({
   leftover,
   onLeftover,
   onLeftoverDate,
+  onLeftoverAdvance,
   status,
   actions,
 }: {
@@ -85,6 +90,7 @@ export function CycleResult({
   leftover?: LeftoverChoice[];
   onLeftover?: (key: string) => void;
   onLeftoverDate?: (key: string, date: ISODate) => void;
+  onLeftoverAdvance?: (key: string) => void;
   status: ReactNode;
   actions?: ReactNode;
 }) {
@@ -173,46 +179,78 @@ export function CycleResult({
             {leftover.map((l) => {
               const none = l.amountCents <= 0;
               const cut = !none && l.amountCents < l.suggestedCents;
+              const adv = l.advanced ? l.advance : undefined;
+              const lender = l.advance ? byId.get(l.advance.lenderAccountId) : undefined;
               return (
-                <label key={l.key} className="mt-2 flex min-h-11 cursor-pointer items-center gap-3 border-b border-rule py-1.5">
-                  <input
-                    type="checkbox"
-                    checked={l.chosen}
-                    disabled={none}
-                    onChange={() => onLeftover?.(l.key)}
-                    className="size-5 flex-none accent-(--k-ink)"
-                  />
-                  <span className="min-w-0 flex-1">
-                    <Route from={byId.get(l.fromAccountId)} to={byId.get(l.toAccountId)} className="text-[15px]" />
-                    <span className="block text-[13px] text-ink-2">
-                      {onLeftoverDate ? (
-                        <LeftoverDay date={l.date} min={today} max={end} onMove={(d) => onLeftoverDate(l.key, d)} />
-                      ) : (
-                        fromDay(l.date)
-                      )}
-                      , entro {theDay(end)}
-                      {l.date !== l.suggestedDate && onLeftoverDate && (
-                        <>
-                          {' · '}
-                          <button
-                            type="button"
-                            onClick={() => onLeftoverDate(l.key, l.suggestedDate)}
-                            className="cursor-pointer border-none bg-transparent p-0 text-[13px] text-ink-2 underline"
-                          >
-                            rimetti {fromDay(l.suggestedDate)}
-                          </button>
-                        </>
-                      )}
-                      {none && <span className="block">quel giorno non c’è ancora niente di libero: si libera {fromDay(l.suggestedDate)}</span>}
-                      {cut && (
-                        <span className="block">
-                          quel giorno sono liberi solo {money(l.amountCents)} €: tutti i {money(l.suggestedCents)} € {fromDay(l.suggestedDate)}
-                        </span>
-                      )}
+                <div key={l.key} className="mt-2 border-b border-rule py-1.5">
+                  <label className="flex min-h-11 cursor-pointer items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={l.chosen}
+                      disabled={none && !adv}
+                      onChange={() => onLeftover?.(l.key)}
+                      className="size-5 flex-none accent-(--k-ink)"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <Route from={adv ? lender : byId.get(l.fromAccountId)} to={byId.get(l.toAccountId)} className="text-[15px]" />
+                      <span className="block text-[13px] text-ink-2">
+                        {adv ? (
+                          <>
+                            {fromDay(adv.date)}, entro {theDay(end)}
+                            <span className="block">
+                              poi {byId.get(l.fromAccountId)?.name} lo rimette su {lender?.name} {fromDay(adv.returnDate)}, entro{' '}
+                              {theDay(adv.returnDueDate)}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            {onLeftoverDate ? (
+                              <LeftoverDay date={l.date} min={today} max={end} onMove={(d) => onLeftoverDate(l.key, d)} />
+                            ) : (
+                              fromDay(l.date)
+                            )}
+                            , entro {theDay(end)}
+                            {l.date !== l.suggestedDate && onLeftoverDate && (
+                              <>
+                                {' · '}
+                                <button
+                                  type="button"
+                                  onClick={() => onLeftoverDate(l.key, l.suggestedDate)}
+                                  className="cursor-pointer border-none bg-transparent p-0 text-[13px] text-ink-2 underline"
+                                >
+                                  rimetti {fromDay(l.suggestedDate)}
+                                </button>
+                              </>
+                            )}
+                            {none && <span className="block">quel giorno non c’è ancora niente di libero: si libera {fromDay(l.suggestedDate)}</span>}
+                            {cut && (
+                              <span className="block">
+                                quel giorno sono liberi solo {money(l.amountCents)} €: tutti i {money(l.suggestedCents)} € {fromDay(l.suggestedDate)}
+                              </span>
+                            )}
+                          </>
+                        )}
+                      </span>
                     </span>
-                  </span>
-                  <span className={cx('font-mono text-[17px] font-semibold', none && 'text-ink-2')}>{money(l.amountCents)}</span>
-                </label>
+                    <span className={cx('font-mono text-[17px] font-semibold', none && !adv && 'text-ink-2')}>
+                      {money(adv ? adv.amountCents : l.amountCents)}
+                    </span>
+                  </label>
+                  {l.advance && onLeftoverAdvance && (
+                    <label className="ml-8 flex min-h-9 cursor-pointer items-center gap-2.5 text-[13px] text-ink-2">
+                      <input
+                        type="checkbox"
+                        checked={l.advanced}
+                        onChange={() => onLeftoverAdvance(l.key)}
+                        className="size-4 flex-none accent-(--k-ink)"
+                      />
+                      <span>
+                        anticipalo {fromDay(l.advance.date)} da {lender?.name}: due bonifici invece di uno, a {lender?.name} quei soldi servono
+                        solo {fromDay(l.advance.returnDueDate)}
+                      </span>
+                    </label>
+                  )}
+                </div>
               );
             })}
           </div>

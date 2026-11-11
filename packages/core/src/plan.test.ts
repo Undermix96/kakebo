@@ -348,6 +348,7 @@ describe('planCycle: cash warnings and leftover', () => {
           { date: '2026-12-01', amountCents: 550 },
         ],
       },
+      advances: [],
     });
   });
 
@@ -370,6 +371,62 @@ describe('planCycle: cash warnings and leftover', () => {
     ]);
     // The cents stay on a.
     expect(plan.accounts.find((x) => x.accountId === 'a')!.withTransfers.endCents - 800).toBe(45);
+  });
+
+  it('brings an installment forward through an account that does not need its money yet', () => {
+    const plan = run(
+      base({
+        accounts: [account('a', 1), account('w', 2), account('ing', 3, { receivesLeftover: true })],
+        balances: [
+          { accountId: 'a', amountCents: 100, asOf: '2026-11-10' },
+          { accountId: 'w', amountCents: 1000, asOf: '2026-11-10' },
+          { accountId: 'ing', amountCents: 0, asOf: '2026-11-10' },
+        ],
+        // a's money comes on the 25th; w holds 1000 it only spends on 5 Dec.
+        entries: [entry('a', '2026-11-25', 800), entry('w', '2026-12-05', -1000)],
+      }),
+    );
+    expect(plan.leftover.suggestions).toEqual([
+      { fromAccountId: 'a', toAccountId: 'ing', amountCents: 100, date: '2026-11-10', dueDate: '2026-12-10' },
+      { fromAccountId: 'a', toAccountId: 'ing', amountCents: 800, date: '2026-11-25', dueDate: '2026-12-10' },
+    ]);
+    expect(plan.leftover.advances).toEqual([
+      { suggestion: 1, lenderAccountId: 'w', amountCents: 800, date: '2026-11-10', returnDate: '2026-11-25', returnDueDate: '2026-12-05' },
+    ]);
+  });
+
+  it('does not bring forward through an account that needs the money before it comes back', () => {
+    const plan = run(
+      base({
+        accounts: [account('a', 1), account('w', 2), account('ing', 3, { receivesLeftover: true })],
+        balances: [
+          { accountId: 'a', amountCents: 0, asOf: '2026-11-10' },
+          { accountId: 'w', amountCents: 1000, asOf: '2026-11-10' },
+          { accountId: 'ing', amountCents: 0, asOf: '2026-11-10' },
+        ],
+        entries: [entry('a', '2026-11-25', 800), entry('w', '2026-11-20', -1000)],
+      }),
+    );
+    expect(plan.leftover.suggestions).toHaveLength(1);
+    expect(plan.leftover.advances).toEqual([]);
+  });
+
+  it('does not lend money the lender is still waiting for', () => {
+    const plan = run(
+      base({
+        accounts: [account('a', 1), account('w', 2), account('c', 3), account('ing', 4, { receivesLeftover: true })],
+        balances: [
+          { accountId: 'a', amountCents: 0, asOf: '2026-11-10' },
+          { accountId: 'w', amountCents: 0, asOf: '2026-11-10' },
+          { accountId: 'c', amountCents: 1000, asOf: '2026-11-10' },
+          { accountId: 'ing', amountCents: 1000, asOf: '2026-11-10' },
+        ],
+        // w gets 1000 from c to pay on 5 Dec: it must not lend it before having it.
+        entries: [entry('a', '2026-11-25', 800), entry('w', '2026-12-05', -1000), entry('ing', '2026-11-11', -1000)],
+      }),
+    );
+    expect(plan.transfers.some((t) => t.toAccountId === 'w')).toBe(true);
+    expect(plan.leftover.advances.filter((a) => a.lenderAccountId === 'w')).toEqual([]);
   });
 
   it('suggests nothing when the source has no surplus', () => {
