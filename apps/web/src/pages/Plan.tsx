@@ -210,6 +210,8 @@ function Wizard({
   const balancesOk = Object.values(balanceErrors).every((e) => !e);
   const asOfOf = (accountId: string) => balances[accountId]?.asOf ?? today;
   const start = parsedBalances.reduce((d, b) => (b.asOf && b.asOf < d ? b.asOf : d), today);
+  /** First day an entry of this cycle can have happened on (brought forward or already spent). */
+  const cycleStart = [cycleBounds(month, today, settings.cycleEndDay).start, start].reduce((a, b) => (a < b ? a : b));
 
   const deferred = useDeferredValue(entries);
   const options = { roundingCents: settings.roundingCents, leadDays: settings.leadDays };
@@ -311,6 +313,42 @@ function Wizard({
     setTexts((t) => ({ ...t, [entry.id]: entry.amountCents == null ? '' : money(entry.amountCents) }));
   };
   const removeEntry = (id: string) => setEntries((list) => list.filter((e) => e.id !== id));
+  /** An entry planned later in the cycle already happened: it moves to the real day (and amount). */
+  const beforeAnticipate = useRef(new Map<string, number | null>());
+  const anticipate = (id: string, date: ISODate, amountCents: number) => {
+    touched.current.add(id);
+    const prev = entries.find((e) => e.id === id);
+    if (prev && !beforeAnticipate.current.has(id)) beforeAnticipate.current.set(id, prev.amountCents);
+    setTexts((t) => ({ ...t, [id]: money(amountCents) }));
+    setEntries((list) =>
+      byDate(
+        list.map((e) =>
+          e.id !== id
+            ? e
+            : {
+                ...e,
+                date,
+                amountCents,
+                plannedDate: e.plannedDate ?? e.date,
+                state: date < asOfOf(e.accountId) ? 'included_in_balance' : 'pending',
+              },
+        ),
+      ),
+    );
+  };
+  /** Puts a moved or brought-forward entry back on its planned day, still to be paid. */
+  const restore = (id: string) => {
+    touched.current.add(id);
+    // The amount it had before being brought forward, when known (same session).
+    if (beforeAnticipate.current.has(id)) {
+      const cents = beforeAnticipate.current.get(id)!;
+      beforeAnticipate.current.delete(id);
+      setAmount(id, cents == null ? '' : money(cents));
+    }
+    setEntries((list) =>
+      byDate(list.map((e) => (e.id === id && e.plannedDate ? { ...e, date: e.plannedDate, plannedDate: null, state: 'pending' } : e))),
+    );
+  };
   /** Moves an entry to another day of this cycle only; remembers the day it was planned on. */
   const moveEntry = (id: string, date: ISODate) => {
     touched.current.add(id);
@@ -512,6 +550,9 @@ function Wizard({
                 entries={entries}
                 asOfOf={asOfOf}
                 today={today}
+                cycleStart={cycleStart}
+                onAnticipate={anticipate}
+                onRestore={restore}
                 onToggle={(e) => {
                   touched.current.add(e.id);
                   setEntry(e.id, { state: e.state === 'included_in_balance' ? 'pending' : 'included_in_balance' });
@@ -762,6 +803,9 @@ function StepPast({
   entries,
   asOfOf,
   today,
+  cycleStart,
+  onAnticipate,
+  onRestore,
   onToggle,
   onAdd,
   onRemove,
@@ -772,12 +816,17 @@ function StepPast({
   entries: CycleEntry[];
   asOfOf: (accountId: string) => ISODate;
   today: ISODate;
+  cycleStart: ISODate;
+  onAnticipate: (id: string, date: ISODate, amountCents: number) => void;
+  onRestore: (id: string) => void;
   onToggle: (e: CycleEntry) => void;
   onAdd: (e: Omit<CycleEntry, 'id' | 'state'>) => void;
   onRemove: (id: string) => void;
 }) {
-  const [adding, setAdding] = useState(false);
-  const past = entries.filter((e) => e.origin === 'catalog' && e.state !== 'excluded' && e.date <= asOfOf(e.accountId));
+  const [adding, setAdding] = useState<false | 'movement' | 'entry'>(false);
+  const past = entries.filter((e) => e.origin !== 'past_movement' && e.state !== 'excluded' && e.date <= asOfOf(e.accountId));
+  // Entries still ahead in the cycle that may have happened already.
+  const ahead = entries.filter((e) => e.origin !== 'past_movement' && e.state === 'pending' && e.date > asOfOf(e.accountId));
   const moves = entries.filter((e) => e.origin === 'past_movement');
   const todayUnchecked = past.some((e) => e.date === asOfOf(e.accountId) && e.state !== 'included_in_balance');
 
@@ -785,7 +834,7 @@ function StepPast({
     <>
       <StepIntro n={2} title="Già successo?" heading={heading}>
         Queste voci hanno una data uguale o precedente al saldo: se sono già passate dal conto, sono dentro il numero che hai scritto.
-        Togli la spunta solo a quelle non ancora addebitate.
+        Togli la spunta solo a quelle non ancora addebitate. Se una voce prevista più avanti è già passata, anticipala qui.
       </StepIntro>
       <div className="mt-[26px] border-t-[1.5px] border-ink">
         {past.length === 0 && (
@@ -804,9 +853,25 @@ function StepPast({
               <span className="font-mono text-sm text-ink-2">{formatDay(e.date)}</span>
               <span className="min-w-0">
                 <span className="block text-base font-bold">{e.name}</span>
-                <span className="mt-0.5 flex items-center gap-1.5 text-[13px] text-ink-2">
+                <span className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[13px] text-ink-2">
                   <Glyph account={a} />
                   {a?.name} · {on ? 'già nel saldo' : 'non ancora addebitata: la conto nel ciclo'}
+                  {e.plannedDate && e.plannedDate > e.date && (
+                    <>
+                      {' · '}anticipata, era {theDay(e.plannedDate)}
+                      <button
+                        type="button"
+                        onClick={(ev) => {
+                          ev.preventDefault();
+                          onRestore(e.id);
+                        }}
+                        aria-label={`Rimetti ${e.name} ${toDay(e.plannedDate)}`}
+                        className="min-h-8 cursor-pointer border-none bg-transparent p-0 text-[13px] text-ink-2 underline"
+                      >
+                        rimetti
+                      </button>
+                    </>
+                  )}
                 </span>
               </span>
               <span className={cx('font-mono text-lg font-semibold', signed < 0 ? 'text-verm' : 'text-ink', on && 'opacity-45')}>
@@ -848,7 +913,19 @@ function StepPast({
         </div>
       )}
 
-      {adding ? (
+      {adding === 'entry' ? (
+        <AnticipateForm
+          entries={ahead}
+          byId={byId}
+          min={cycleStart}
+          max={today}
+          onAnticipate={(id, date, cents) => {
+            onAnticipate(id, date, cents);
+            setAdding(false);
+          }}
+          onClose={() => setAdding(false)}
+        />
+      ) : adding === 'movement' ? (
         <EntryForm
           title="Uno stipendio o una spesa già avvenuti"
           accounts={accounts}
@@ -864,9 +941,14 @@ function StepPast({
           onClose={() => setAdding(false)}
         />
       ) : (
-        <Button variant="dashed" className="mt-5" onClick={() => setAdding(true)}>
-          + Aggiungi a mano uno stipendio o una spesa già avvenuti
-        </Button>
+        <div className="mt-5 flex flex-wrap gap-3">
+          <Button variant="dashed" onClick={() => setAdding('entry')} disabled={ahead.length === 0}>
+            + Una voce del ciclo è già passata
+          </Button>
+          <Button variant="dashed" onClick={() => setAdding('movement')}>
+            + Aggiungi a mano uno stipendio o una spesa già avvenuti
+          </Button>
+        </div>
       )}
     </>
   );
@@ -1058,6 +1140,101 @@ function StepEntries({
       )}
       <div className="mt-[18px] border-t-[1.5px] border-ink">{body}</div>
     </>
+  );
+}
+
+/** Picks an entry planned later in the cycle that already happened, with its real day and amount. */
+function AnticipateForm({
+  entries,
+  byId,
+  min,
+  max,
+  onAnticipate,
+  onClose,
+}: {
+  entries: CycleEntry[];
+  byId: Map<string, AccountRecord>;
+  min: ISODate;
+  max: ISODate;
+  onAnticipate: (id: string, date: ISODate, amountCents: number) => void;
+  onClose: () => void;
+}) {
+  const [entryId, setEntryId] = useState(entries[0]?.id ?? '');
+  const entry = entries.find((e) => e.id === entryId);
+  const [date, setDate] = useState(max);
+  const [amount, setAmount] = useState(entry?.amountCents == null ? '' : money(entry.amountCents));
+  const [error, setError] = useState<string | null>(null);
+  const first = useRef<HTMLSelectElement>(null);
+  useEffect(() => first.current?.focus(), []);
+
+  const pick = (id: string) => {
+    setEntryId(id);
+    const e = entries.find((x) => x.id === id);
+    setAmount(e?.amountCents == null ? '' : money(e.amountCents));
+    setError(null);
+  };
+  const confirm = () => {
+    if (!entry) return setError('scegli una voce');
+    const cents = readAmount(amount);
+    if (cents == null || cents <= 0) return setError('scrivi l’importo vero, maggiore di zero');
+    if (!date || date < min || date > max) return setError(`la data va ${fromDay(min)} ${toDay(max)}`);
+    onAnticipate(entry.id, date, cents);
+  };
+
+  return (
+    <div
+      className="mt-5 rounded-field border-[1.5px] border-ink bg-page px-[18px] pt-[18px] pb-4 motion-safe:animate-open"
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') onClose();
+        if (e.key === 'Enter' && (e.target as HTMLElement).tagName === 'INPUT') {
+          e.preventDefault();
+          confirm();
+        }
+      }}
+    >
+      <div className="font-display text-lg font-bold">Una voce del ciclo è già passata</div>
+      <p className="mt-1 mb-0 text-[13px] text-ink-2">
+        La sposto al giorno in cui è successa: se è prima del saldo è già dentro il numero che hai scritto. Puoi rimetterla quando vuoi.
+      </p>
+      <div className="mt-3 flex flex-wrap items-end gap-x-4 gap-y-3.5">
+        <label className="flex flex-[2_1_220px] flex-col gap-1 text-xs text-ink-2">
+          voce
+          <select ref={first} value={entryId} onChange={(e) => pick(e.target.value)} className={cx(inputClass, 'text-base')}>
+            {entries.map((e) => (
+              <option key={e.id} value={e.id}>
+                {formatDay(e.date)} · {e.name} · {byId.get(e.accountId)?.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-[0_1_150px] flex-col gap-1 text-xs text-ink-2">
+          è passata il
+          <input
+            type="date"
+            value={date}
+            min={min}
+            max={max}
+            onChange={(e) => setDate(e.target.value)}
+            className={cx(inputClass, 'font-mono text-base')}
+          />
+        </label>
+        <label className="flex flex-[1_1_120px] flex-col gap-1 text-xs text-ink-2">
+          importo vero
+          <AmountField value={amount} onChange={setAmount} placeholder="0,00" className="h-11 border-b-[1.5px] border-solid border-ink text-lg" />
+        </label>
+        <Button variant="primary" onClick={confirm}>
+          Anticipa
+        </Button>
+        <Button variant="quiet" onClick={onClose}>
+          Annulla
+        </Button>
+      </div>
+      {error && (
+        <div className="mt-2.5">
+          <ErrorNote error={error} />
+        </div>
+      )}
+    </div>
   );
 }
 
