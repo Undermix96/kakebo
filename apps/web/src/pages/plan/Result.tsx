@@ -711,7 +711,22 @@ function Ledger({ plan, accounts, transfers }: { plan: PlanResult; accounts: Acc
                     済
                   </span>
                 )}
-                {!isT && r.originalDate && <span className="text-xs text-ink-2"> · era {ofDay(r.originalDate)}</span>}
+                {!isT && r.paidOn && (
+                  <span
+                    aria-label="bonifico fatto"
+                    className="ml-1.5 inline-grid size-[18px] -rotate-12 place-items-center rounded-full border-[1.5px] border-verm font-display text-[10px] font-extrabold text-verm"
+                  >
+                    済
+                  </span>
+                )}
+                {!isT && r.paidOn ? (
+                  <span className="text-xs text-ink-2">
+                    {' '}
+                    · bonifico fatto{r.originalDate && `, scadenza ${ofDay(r.originalDate)}`}
+                  </span>
+                ) : (
+                  !isT && r.originalDate && <span className="text-xs text-ink-2"> · era {ofDay(r.originalDate)}</span>
+                )}
                 {!isT && r.envelope && (
                   <span className="text-xs text-ink-2">
                     {' '}

@@ -4,6 +4,8 @@ import {
   cycleBounds,
   cycleMonthFor,
   defaultEntryState,
+  entryCanBeByTransfer,
+  entryDay,
   envelopeSpent,
   envelopeStatus,
   fitLeftover,
@@ -265,9 +267,12 @@ function Wizard({
   function applyDefaultStates() {
     const bals = parsedBalances as { accountId: string; amountCents: number; asOf: ISODate }[];
     setEntries((list) =>
-      list.map((e) =>
-        touched.current.has(e.id) || e.origin !== 'catalog' || e.state === 'excluded' ? e : { ...e, state: defaultEntryState(e, bals) },
-      ),
+      list.map((e) => {
+        // Paid before the balance date: the transfer is already in the balance (§13 phase 5c).
+        const asOf = bals.find((b) => b.accountId === e.accountId)?.asOf;
+        if (e.state === 'pending' && e.paidOn && asOf && e.paidOn < asOf) return { ...e, state: 'included_in_balance' };
+        return touched.current.has(e.id) || e.origin !== 'catalog' || e.state === 'excluded' ? e : { ...e, state: defaultEntryState(e, bals) };
+      }),
     );
   }
 
@@ -328,6 +333,11 @@ function Wizard({
     setTexts((t) => ({ ...t, [entry.id]: entry.amountCents == null ? '' : money(entry.amountCents) }));
   };
   const removeEntry = (id: string) => setEntries((list) => list.filter((e) => e.id !== id));
+  /** Paid by a transfer made by hand (§13 phase 5c); turning it off also drops its stamp. */
+  const setByTransfer = (id: string, on: boolean) => {
+    touched.current.add(id);
+    setEntry(id, on ? { byTransfer: true } : { byTransfer: false, paidOn: null });
+  };
   // ---- envelopes ("buste"): expenses already made out of them ----
   const isEnvelope = (e: CycleEntry) => !!e.recurringItemId && !!itemById.get(e.recurringItemId)?.envelope;
   const envelopes = entries.filter((e) => isEnvelope(e) && e.state !== 'excluded');
@@ -651,7 +661,10 @@ function Wizard({
                 onRestore={restore}
                 onToggle={(e) => {
                   touched.current.add(e.id);
-                  setEntry(e.id, { state: e.state === 'included_in_balance' ? 'pending' : 'included_in_balance' });
+                  const state = e.state === 'included_in_balance' ? 'pending' : 'included_in_balance';
+                  // Still to pay again: a stamp before the balance date no longer fits (§13 phase 5c).
+                  const drop = state === 'pending' && e.paidOn && e.paidOn < asOfOf(e.accountId);
+                  setEntry(e.id, { state, ...(drop ? { paidOn: null } : {}) });
                 }}
                 onAdd={addEntry}
                 onRemove={removeEntry}
@@ -674,10 +687,12 @@ function Wizard({
                 onMove={moveEntry}
                 onExclude={(e) => {
                   touched.current.add(e.id);
-                  if (e.origin === 'catalog') setEntry(e.id, { state: e.state === 'excluded' ? 'pending' : 'excluded' });
+                  // An entry taken out of the cycle loses its stamp (§13 phase 5c).
+                  if (e.origin === 'catalog') setEntry(e.id, e.state === 'excluded' ? { state: 'pending' } : { state: 'excluded', paidOn: null });
                   else removeEntry(e.id);
                 }}
                 onAdd={addEntry}
+                onByTransfer={setByTransfer}
               />
             )}
 
@@ -895,7 +910,7 @@ function StepBalances({
 
 /** Entries shown in step 2: those dated up to the balance, plus the ones already happened added there. */
 function inStepPast(e: CycleEntry, asOfOf: (accountId: string) => ISODate) {
-  return e.origin === 'past_movement' || (e.state !== 'excluded' && e.date <= asOfOf(e.accountId));
+  return e.origin === 'past_movement' || (e.state !== 'excluded' && entryDay(e) <= asOfOf(e.accountId));
 }
 
 /** The amount of an entry of step 2, editable as in step 3. */
@@ -985,11 +1000,12 @@ function StepPast({
 }) {
   const [adding, setAdding] = useState<false | 'movement' | 'entry'>(false);
   const [envelopeOpen, setEnvelopeOpen] = useState<string | null>(null);
-  const past = entries.filter((e) => e.origin !== 'past_movement' && e.state !== 'excluded' && e.date <= asOfOf(e.accountId));
-  // Entries still ahead in the cycle that may have happened already.
-  const ahead = entries.filter((e) => e.origin !== 'past_movement' && e.state === 'pending' && e.date > asOfOf(e.accountId));
+  // A stamped expense paid by a transfer counts on the day it was paid (§13 phase 5c).
+  const past = entries.filter((e) => e.origin !== 'past_movement' && e.state !== 'excluded' && entryDay(e) <= asOfOf(e.accountId));
+  // Entries still ahead in the cycle that may have happened already (not those already stamped as paid).
+  const ahead = entries.filter((e) => e.origin !== 'past_movement' && e.state === 'pending' && !e.paidOn && e.date > asOfOf(e.accountId));
   const moves = entries.filter((e) => e.origin === 'past_movement' && !e.envelopeEntryId);
-  const todayUnchecked = past.some((e) => e.date === asOfOf(e.accountId) && e.state !== 'included_in_balance');
+  const todayUnchecked = past.some((e) => entryDay(e) === asOfOf(e.accountId) && e.state !== 'included_in_balance');
   const amount = (e: CycleEntry, muted = false) => (
     <PastAmount entry={e} text={texts[e.id] ?? ''} showErrors={showErrors} muted={muted} onAmount={(t) => onAmount(e.id, t)} />
   );
@@ -1014,7 +1030,7 @@ function StepPast({
             >
               <label className="contents cursor-pointer">
                 <input type="checkbox" checked={on} onChange={() => onToggle(e)} className="m-0 size-6 cursor-pointer accent-(--k-ink)" />
-                <span className="font-mono text-sm text-ink-2">{formatDay(e.date)}</span>
+                <span className="font-mono text-sm text-ink-2">{formatDay(entryDay(e))}</span>
                 <span className="min-w-0">
                   <span className="block text-base font-bold">{e.name}</span>
                   <span className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[13px] text-ink-2">
@@ -1342,6 +1358,7 @@ function StepEntries({
   onMove,
   onExclude,
   onAdd,
+  onByTransfer,
 }: {
   heading: React.RefObject<HTMLHeadingElement | null>;
   accounts: AccountRecord[];
@@ -1358,6 +1375,7 @@ function StepEntries({
   onMove: (id: string, date: ISODate) => void;
   onExclude: (e: CycleEntry) => void;
   onAdd: (e: Omit<CycleEntry, 'id' | 'state'>) => void;
+  onByTransfer: (id: string, on: boolean) => void;
 }) {
   const [group, setGroup] = useState<'data' | 'conto'>('data');
   const [adding, setAdding] = useState(false);
@@ -1375,6 +1393,8 @@ function StepEntries({
     const was = item?.amountCents;
     const changed = e.origin === 'catalog' && was != null && e.amountCents != null && e.amountCents !== was;
     const envelope = envelopeStatus(e, spent);
+    // Kept visible on an envelope still flagged from before, so the flag can be removed.
+    const canTransfer = entryCanBeByTransfer(e) && (!item?.envelope || !!e.byTransfer);
     const tag = e.envelopeEntryId
       ? `dalla busta ${entries.find((x) => x.id === e.envelopeEntryId)?.name ?? ''}`.trim()
       : item?.envelope
@@ -1411,7 +1431,24 @@ function StepEntries({
             >
               {excluded ? 'rimetti' : e.origin === 'catalog' ? 'non questo mese' : 'togli'}
             </button>
+            {canTransfer && !excluded && (
+              <label className="flex min-h-8 cursor-pointer items-center gap-1.5 text-xs text-ink-2">
+                <input
+                  type="checkbox"
+                  checked={!!e.byTransfer}
+                  onChange={(ev) => onByTransfer(e.id, ev.target.checked)}
+                  className="m-0 size-4 cursor-pointer accent-(--k-ink)"
+                />
+                con bonifico
+              </label>
+            )}
           </span>
+          {e.byTransfer && e.paidOn && (
+            <span className="mt-0.5 block text-xs text-ink-2">
+              bonifico fatto {theDay(e.paidOn)}
+              {e.paidOn !== e.date && `, scadenza ${theDay(e.date)}`}
+            </span>
+          )}
           {item?.note && <Hand className="mt-0.5 block text-lg">{item.note}</Hand>}
           <span className="mt-0.5 flex items-center gap-1.5 text-xs text-ink-2 md:hidden">
             <Glyph account={a} />

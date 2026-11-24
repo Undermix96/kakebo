@@ -86,10 +86,14 @@ export const useUpdateAccount = () =>
   );
 export const useCreateItem = () =>
   useCatalogMutation<ItemCreate, CatalogItem>((json) => client.api.items.$post({ json }));
-export const useUpdateItem = () =>
-  useCatalogMutation<{ id: string; patch: ItemPatch }, CatalogItem>(({ id, patch }) =>
-    client.api.items[':id'].$patch({ param: { id }, json: patch }),
-  );
+/** Editing an item can also change the cycle in progress ("paid by transfer", §13 phase 5c): refresh both. */
+export function useUpdateItem() {
+  const qc = useQueryClient();
+  return useMutation<CatalogItem, ApiError, { id: string; patch: ItemPatch }>({
+    mutationFn: ({ id, patch }) => unwrap(client.api.items[':id'].$patch({ param: { id }, json: patch })),
+    onSuccess: () => Promise.all([qc.invalidateQueries({ queryKey: ['catalog'] }), qc.invalidateQueries({ queryKey: ['cycles'] })]),
+  });
+}
 export const useUpdateSettings = () =>
   useCatalogMutation<Partial<Settings>, Settings>((json) => client.api.settings.$patch({ json }));
 export const useImportCatalog = () =>
@@ -146,6 +150,32 @@ export function useStampTransfer() {
       const before = qc.getQueryData<CycleRecord[]>(['cycles']);
       qc.setQueryData<CycleRecord[]>(['cycles'], (list) =>
         list?.map((c) => ({ ...c, transfers: c.transfers.map((t) => (t.id === id ? { ...t, doneOn } : t)) })),
+      );
+      return { before };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.before) qc.setQueryData(['cycles'], ctx.before);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ['cycles'] }),
+  });
+}
+
+/**
+ * Stamps an expense paid by a transfer with the day it was made (null removes it),
+ * also in a confirmed cycle (§13 phase 5c). Optimistic, like the transfers.
+ */
+export function useStampEntry() {
+  const qc = useQueryClient();
+  return useMutation<CycleRecord, ApiError, { month: string; id: string; paidOn: string | null }, { before?: CycleRecord[] }>({
+    mutationFn: ({ month, id, paidOn }) =>
+      unwrap(client.api.cycles[':month'].entries[':id'].$patch({ param: { month, id }, json: { paidOn } })),
+    onMutate: async ({ month, id, paidOn }) => {
+      await qc.cancelQueries({ queryKey: ['cycles'] });
+      const before = qc.getQueryData<CycleRecord[]>(['cycles']);
+      qc.setQueryData<CycleRecord[]>(['cycles'], (list) =>
+        list?.map((c) =>
+          c.month !== month ? c : { ...c, entries: c.entries.map((e) => (e.id === id ? { ...e, paidOn } : e)) },
+        ),
       );
       return { before };
     },

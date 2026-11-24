@@ -1,14 +1,16 @@
+import { useRef } from 'react';
 import {
   addDays,
   daysBetween,
   todayInRome,
   type AccountRecord,
+  type CycleEntry,
   type CycleRecord,
   type Debt,
   type ISODate,
   type PlanResult,
 } from '@kakebo/core';
-import { useCatalog, useCycles, useDebts, useDeleteDraft, useStampTransfer } from '../api.ts';
+import { useCatalog, useCycles, useDebts, useDeleteDraft, useStampEntry, useStampTransfer } from '../api.ts';
 import { Link } from '../router.tsx';
 import { Button, ErrorNote, Hand, Loading, cx } from '../ui/kit.tsx';
 import { DayCells, Glyph, Notice, Route, Stamp, accountInk, datesBetween, inkScale } from '../ui/cycle.tsx';
@@ -125,15 +127,26 @@ function FirstCycle({ today, hasDraft }: { today: ISODate; hasDraft: boolean }) 
   );
 }
 
+/** Expenses of the cycle paid by a transfer made by hand, still to pay (§13 phase 5c). */
+const transferPayments = (cycle: CycleRecord) =>
+  cycle.entries
+    .filter((e) => e.kind === 'expense' && e.byTransfer && e.state === 'pending')
+    .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.name.localeCompare(b.name)));
+
 function Verdict({ cycle, sp, today }: { cycle: CycleRecord; sp: StoredPlan; today: ISODate }) {
   const stamp = useStampTransfer();
   const { plan, accounts, transfers } = sp;
   const byId = new Map(accounts.map((a) => [a.id, a]));
   const ended = today > cycle.endsOn;
   const cash = plan.warnings.some((w) => w.type === 'cash_shortfall');
-  const todo = transfers.filter((t) => !t.doneOn);
+  const payments = transferPayments(cycle);
+  // Both kinds of transfer count in the sentence: between accounts and to pay an expense.
+  const todo = [
+    ...transfers.filter((t) => !t.doneOn).map((t) => t.dueDate),
+    ...payments.filter((e) => !e.paidOn).map((e) => e.date),
+  ].sort();
   const next = todo[0];
-  const late = todo.filter((t) => t.dueDate < today);
+  const late = transfers.filter((t) => !t.doneOn && t.dueDate < today);
   const title = ended
     ? `Il ciclo di ${monthName(cycle.month).toLowerCase()} è finito.`
     : cash
@@ -154,7 +167,7 @@ function Verdict({ cycle, sp, today }: { cycle: CycleRecord; sp: StoredPlan; tod
       </h1>
       <p className="mt-3.5 mb-0 max-w-[40ch] text-lg leading-normal">
         Al {formatDay(plan.end)} restano <strong className="font-mono font-semibold">{money(plan.leftover.totalCents)} €</strong> in tutto.{' '}
-        {transfers.length === 0 ? (
+        {transfers.length + payments.length === 0 ? (
           'Nessun bonifico da fare.'
         ) : todo.length === 0 ? (
           'Tutti i bonifici sono timbrati.'
@@ -166,7 +179,7 @@ function Verdict({ cycle, sp, today }: { cycle: CycleRecord; sp: StoredPlan; tod
             </strong>
             : il prossimo entro{' '}
             <strong>
-              {weekdayLong(next!.dueDate)} {formatDay(next!.dueDate)}
+              {weekdayLong(next!)} {formatDay(next!)}
             </strong>
             .
           </>
@@ -192,6 +205,8 @@ function Verdict({ cycle, sp, today }: { cycle: CycleRecord; sp: StoredPlan; tod
           ))}
         </div>
       </div>
+
+      <LatePayments cycle={cycle} payments={payments} byId={byId} today={today} />
 
       {late.map((t) => {
         const label = `${byId.get(t.fromAccountId)?.name} → ${byId.get(t.toAccountId)?.name}`;
@@ -243,7 +258,133 @@ function Verdict({ cycle, sp, today }: { cycle: CycleRecord; sp: StoredPlan; tod
         })}
       </div>
       <ErrorNote error={stamp.error} />
+      <Payments cycle={cycle} payments={payments} byId={byId} today={today} />
     </>
+  );
+}
+
+/** Default day of a stamp: today, kept inside the cycle (§13 phase 5c). */
+const stampDay = (cycle: CycleRecord, today: ISODate) => (today > cycle.endsOn ? cycle.endsOn : today);
+const asOfOf = (cycle: CycleRecord, e: CycleEntry) => cycle.balances.find((b) => b.accountId === e.accountId)?.asOf ?? cycle.plannedOn;
+
+function LatePayments({ cycle, payments, byId, today }: { cycle: CycleRecord; payments: CycleEntry[]; byId: Map<string, AccountRecord>; today: ISODate }) {
+  const stamp = useStampEntry();
+  const late = payments.filter((e) => !e.paidOn && e.date < today);
+  return (
+    <>
+      {late.map((e) => (
+        <div key={e.id} className="mt-5">
+          <Notice>
+            <strong>
+              {e.name} ({byId.get(e.accountId)?.name}), {e.amountCents == null ? 'importo da inserire' : `${money(e.amountCents)} €`}, era entro {relativeDay(e.date, today) === 'ieri' ? 'ieri' : theDay(e.date)}.
+            </strong>{' '}
+            Se hai già fatto il bonifico, timbralo; se no, fallo adesso.
+            <div className="mt-2.5">
+              <Button variant="primary" disabled={stamp.isPending} onClick={() => stamp.mutate({ month: cycle.month, id: e.id, paidOn: stampDay(cycle, today) })}>
+                L’ho fatto, timbra
+              </Button>
+            </div>
+          </Notice>
+        </div>
+      ))}
+      <ErrorNote error={stamp.error} />
+    </>
+  );
+}
+
+/** Expenses paid by a transfer made by hand: stamped when done, on the day they were made. */
+function Payments({ cycle, payments, byId, today }: { cycle: CycleRecord; payments: CycleEntry[]; byId: Map<string, AccountRecord>; today: ISODate }) {
+  const stamp = useStampEntry();
+  if (payments.length === 0) return null;
+  return (
+    <>
+      <div className="mt-[34px] flex items-baseline justify-between gap-3">
+        <h2 className="m-0 font-display text-[22px] font-bold">Pagamenti con bonifico</h2>
+        <span className="text-sm text-ink-2">timbrali quando li fai</span>
+      </div>
+      <div className="mt-2 border-t border-ink">
+        {payments.map((e) => {
+          const done = !!e.paidOn;
+          const a = byId.get(e.accountId);
+          return (
+            <div key={e.id} className="grid grid-cols-[60px_minmax(0,1fr)_auto_50px] items-center gap-x-3 border-b border-rule py-[11px]">
+              <div className={cx('font-mono text-sm leading-tight font-semibold', done && 'opacity-55')}>
+                {formatDay(e.date)}
+                <span className="block font-sans text-xs font-normal text-ink-2">{done ? 'fatto' : relativeDay(e.date, today)}</span>
+              </div>
+              <div className="min-w-0">
+                <span className={cx('flex flex-wrap items-center gap-x-2 text-[15px]', done && 'opacity-55')}>
+                  <Glyph account={a} />
+                  <span className="font-medium">{e.name}</span>
+                  <span className="text-xs text-ink-2">da {a?.name}</span>
+                </span>
+                {done && (
+                  <PaidDay
+                    entry={e}
+                    min={asOfOf(cycle, e)}
+                    max={cycle.endsOn}
+                    disabled={stamp.isPending}
+                    onChange={(d) => stamp.mutate({ month: cycle.month, id: e.id, paidOn: d })}
+                  />
+                )}
+              </div>
+              <div className={cx('text-right font-mono text-[17px] font-semibold', done && 'opacity-55', e.amountCents == null && 'text-verm')}>
+                {e.amountCents == null ? 'importo?' : money(e.amountCents)}
+              </div>
+              <Stamp
+                size="md"
+                done={done}
+                disabled={stamp.isPending}
+                label={`bonifico per ${e.name}${e.amountCents == null ? ', importo da inserire' : `, ${money(e.amountCents)} euro`}`}
+                onToggle={() => stamp.mutate({ month: cycle.month, id: e.id, paidOn: done ? null : stampDay(cycle, today) })}
+              />
+            </div>
+          );
+        })}
+      </div>
+      <ErrorNote error={stamp.error} />
+    </>
+  );
+}
+
+/** "fatto il 15", as a button that opens the date picker to change the day of the stamp. */
+function PaidDay({ entry: e, min, max, disabled, onChange }: { entry: CycleEntry; min: ISODate; max: ISODate; disabled?: boolean; onChange: (d: ISODate) => void }) {
+  const input = useRef<HTMLInputElement>(null);
+  const open = () => {
+    const el = input.current;
+    if (!el) return;
+    try {
+      el.showPicker();
+    } catch {
+      el.focus();
+    }
+  };
+  return (
+    <span className="relative mt-0.5 block">
+      <button
+        type="button"
+        onClick={open}
+        disabled={disabled}
+        aria-label={`Bonifico per ${e.name} fatto ${theDay(e.paidOn!)}. Cambia il giorno`}
+        className="min-h-8 cursor-pointer border-0 border-b border-dashed border-rule bg-transparent p-0 text-left text-xs text-ink-2 enabled:hover:text-ink"
+      >
+        fatto {theDay(e.paidOn!)} · cambia il giorno
+      </button>
+      <input
+        ref={input}
+        type="date"
+        tabIndex={-1}
+        aria-hidden="true"
+        className="sr-only"
+        value={e.paidOn!}
+        min={min}
+        max={max}
+        onChange={(ev) => {
+          const d = ev.target.value;
+          if (d && d >= min && d <= max && d !== e.paidOn) onChange(d);
+        }}
+      />
+    </span>
   );
 }
 
@@ -294,6 +435,7 @@ function Agenda({ plan, accounts, cycle, today }: { plan: PlanResult; accounts: 
   const rows = plan.projection.filter((r) => r.date >= today && r.date <= until);
   const days = [...new Set(rows.map((r) => r.date))];
   const out = rows.reduce((s, r) => s + (r.type === 'expense' ? r.amountCents : 0), 0);
+  const entryById = new Map(cycle.entries.map((e) => [e.id, e]));
   const stampedKey = (from: string, to: string, amount: number) =>
     cycle.transfers.find((t) => t.fromAccountId === from && t.toAccountId === to && t.amountCents === amount);
 
@@ -351,12 +493,27 @@ function Agenda({ plan, accounts, cycle, today }: { plan: PlanResult; accounts: 
                     }
                     const a = byId.get(r.accountId);
                     const isOut = r.type === 'expense';
+                    const byTransfer = isOut && entryById.get(r.entryId)?.byTransfer;
                     return (
                       <div key={i} className={cx('grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3', !isOut && 'text-sm')}>
                         <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[15px]">
                           <Glyph account={a} />
                           <span className={isOut ? 'font-medium' : 'text-ink-2'}>{r.name}</span>
                           <span className="text-xs text-ink-2">{a?.name}</span>
+                          {byTransfer &&
+                            (r.paidOn ? (
+                              <span className="inline-flex items-center gap-1 text-xs text-ink-2">
+                                <span
+                                  aria-label="bonifico fatto"
+                                  className="inline-grid size-[18px] -rotate-12 place-items-center rounded-full border-[1.5px] border-verm font-display text-[10px] font-extrabold text-verm"
+                                >
+                                  済
+                                </span>
+                                {r.originalDate && `scadenza ${theDay(r.originalDate)}`}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-ink-2">bonifico da fare</span>
+                            ))}
                         </span>
                         <span className={cx('text-right font-mono text-[15px]', isOut ? 'text-verm' : 'text-ink-2')}>{money(r.amountCents, true)}</span>
                       </div>

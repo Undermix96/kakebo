@@ -237,6 +237,7 @@ function ItemRow({
           {item.name}
         </button>
         {item.envelope && <span className="block text-[11px] tracking-[0.08em] text-ink-2 uppercase">busta</span>}
+        {item.byTransfer && <span className="block text-[11px] tracking-[0.08em] text-ink-2 uppercase">con bonifico</span>}
         {item.note && <Hand className="block">{item.note}</Hand>}
         {item.amountCents == null && <Hand className="block">importo da inserire</Hand>}
         {item.day == null && <Hand className="block">giorno da decidere: conto il 1° del mese</Hand>}
@@ -335,6 +336,7 @@ interface Draft {
   activeFrom: string;
   activeTo: string;
   envelope: boolean;
+  byTransfer: boolean;
 }
 
 function toDraft(item: CatalogItem | undefined, accounts: AccountRecord[]): Draft {
@@ -356,6 +358,7 @@ function toDraft(item: CatalogItem | undefined, accounts: AccountRecord[]): Draf
     activeFrom: item?.activeFrom ?? '',
     activeTo: item?.activeTo ?? '',
     envelope: item?.envelope ?? false,
+    byTransfer: item?.byTransfer ?? false,
   };
 }
 
@@ -409,6 +412,8 @@ function fromDraft(d: Draft): { ok: true; value: ItemCreate } | { ok: false; err
       activeFrom: d.activeFrom || null,
       activeTo: d.activeTo || null,
       envelope: d.kind === 'expense' && d.envelope,
+      // §13 phase 5c: an envelope is spent bit by bit, it is never one transfer.
+      byTransfer: d.kind === 'expense' && !d.envelope && d.byTransfer,
     },
   };
 }
@@ -599,13 +604,31 @@ function ItemEditor({ item, accounts, onClose }: { item?: CatalogItem; accounts:
           <input
             type="checkbox"
             checked={d.envelope}
-            onChange={(e) => set({ envelope: e.target.checked })}
+            onChange={(e) => set({ envelope: e.target.checked, ...(e.target.checked ? { byTransfer: false } : {}) })}
             className="m-0 mt-0.5 size-5 flex-none accent-ink"
           />
           <span>
             È una busta: si consuma durante il ciclo
             <span className="block text-[13px] text-ink-2">
               es. spesa e farmacia. Nella programmazione scrivi le spese già fatte e conto solo quello che resta.
+            </span>
+          </span>
+        </label>
+      )}
+
+      {d.kind === 'expense' && !d.envelope && (
+        <label className="mt-3.5 flex min-h-10 cursor-pointer items-start gap-2.5 text-[15px]">
+          <input
+            type="checkbox"
+            checked={d.byTransfer}
+            onChange={(e) => set({ byTransfer: e.target.checked })}
+            className="m-0 mt-0.5 size-5 flex-none accent-ink"
+          />
+          <span>
+            Si paga con un bonifico fatto a mano
+            <span className="block text-[13px] text-ink-2">
+              In Oggi la timbri quando lo fai: se lo fai prima della scadenza, il saldo del conto scende da quel giorno. Vale anche per il
+              ciclo in corso.
             </span>
           </span>
         </label>

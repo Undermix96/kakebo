@@ -374,11 +374,12 @@ function itemLine(i: CalendarItem, accounts: Map<string, AccountRecord>): { text
       };
     case 'income':
       return { text: i.name, amount: amt == null ? '?' : money(amt, true), textClass: 'text-ink-2', amountClass: 'text-ink-2' };
+    // An expense paid by a transfer, stamped (§13 phase 5c).
     case 'expense':
-      return { text: i.name, amount: amt == null ? '?' : money(-amt), textClass: '', amountClass: 'text-verm' };
+      return { text: `${i.done ? '済 ' : ''}${i.name}`, amount: amt == null ? '?' : money(-amt), textClass: '', amountClass: 'text-verm' };
     case 'deadline':
       return {
-        text: i.name,
+        text: `${i.done ? '済 ' : ''}${i.name}`,
         amount: amt == null ? 'importo ?' : money(-amt),
         textClass: specialClass(i),
         amountClass: amt == null ? 'text-ink-2' : 'text-verm',
