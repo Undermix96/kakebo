@@ -118,6 +118,7 @@ export function generateCycleEntries(
         amountCents: item.amountCents,
         state: 'pending',
         origin: 'catalog',
+        ...(item.byTransfer && item.kind === 'expense' ? { byTransfer: true } : {}),
       });
     }
   }
@@ -126,13 +127,22 @@ export function generateCycleEntries(
 }
 
 /**
- * Default answer to "already in the balance?": yes for anything dated before the
- * balance date of its account, otherwise pending. Excluded entries stay excluded.
+ * The day an entry leaves (or reaches) its account: the day it was stamped as paid,
+ * if it is an expense paid by a transfer that was stamped, otherwise its date (§13 phase 5c).
+ */
+export function entryDay(entry: Pick<CycleEntry, 'date' | 'paidOn'>): ISODate {
+  return entry.paidOn ?? entry.date;
+}
+
+/**
+ * Default answer to "already in the balance?": yes for anything dated (or paid,
+ * see `entryDay`) before the balance date of its account, otherwise pending.
+ * Excluded entries stay excluded.
  */
 export function defaultEntryState(entry: CycleEntry, balances: Balance[]): EntryState {
   if (entry.state === 'excluded') return 'excluded';
   const balance = balances.find((b) => b.accountId === entry.accountId);
-  return balance && entry.date < balance.asOf ? 'included_in_balance' : 'pending';
+  return balance && entryDay(entry) < balance.asOf ? 'included_in_balance' : 'pending';
 }
 
 export function withDefaultStates(entries: CycleEntry[], balances: Balance[]): CycleEntry[] {

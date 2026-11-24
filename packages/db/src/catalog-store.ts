@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { and, asc, eq, ne, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, inArray, isNull, ne, sql } from 'drizzle-orm';
 import {
   ACTIVE_RANGE_MESSAGE,
+  BY_TRANSFER_MESSAGE,
   ENVELOPE_MESSAGE,
+  byTransferIsValid,
   envelopeIsValid,
+  todayInRome,
   DEFAULT_SETTINGS,
   accountCreateSchema,
   activeRangeIsValid,
@@ -18,7 +21,7 @@ import {
   type ItemPatch,
   type Settings,
 } from '@kakebo/core';
-import { accounts, recurringItems, settings } from './schema.ts';
+import { accounts, cycleEntries, cycles, recurringItems, settings } from './schema.ts';
 import type { Db } from './open.ts';
 
 export type StoreErrorCode = 'not_found' | 'conflict' | 'invalid';
@@ -64,6 +67,7 @@ const toItem = (r: ItemRow): CatalogItem => ({
   activeTo: r.activeTo,
   archived: r.archived,
   envelope: r.envelope,
+  byTransfer: r.byTransfer,
 });
 
 const nowIso = () => new Date().toISOString();
@@ -179,6 +183,7 @@ export class CatalogStore {
         activeTo: it.activeTo ?? null,
         archived: it.archived ?? false,
         envelope: it.envelope ?? false,
+        byTransfer: it.byTransfer ?? false,
         createdBy: by,
         updatedBy: by,
       })
@@ -186,19 +191,54 @@ export class CatalogStore {
     return this.getItem(id);
   }
 
-  updateItem(id: string, patch: ItemPatch, by: string): CatalogItem {
+  /**
+   * Edits an item. Changing "paid by transfer" also applies to the entries of that
+   * item not stamped yet in the cycles not ended (`today` and later), so the cycle
+   * in progress follows without reopening it (§13 phase 5c, decided 2026-11-24).
+   */
+  updateItem(id: string, patch: ItemPatch, by: string, today: string = todayInRome()): CatalogItem {
     const current = this.getItem(id);
     const merged = { ...current, ...patch };
     if (!activeRangeIsValid(merged)) throw new StoreError('invalid', ACTIVE_RANGE_MESSAGE);
     if (!envelopeIsValid(merged)) throw new StoreError('invalid', ENVELOPE_MESSAGE);
+    if (!byTransferIsValid(merged)) throw new StoreError('invalid', BY_TRANSFER_MESSAGE);
     // Restoring or moving an item requires an open account; archived items may keep a closed one.
     if (patch.accountId !== undefined || (patch.archived === false && current.archived)) {
       this.assertUsableAccount(merged.accountId);
     }
+    if (patch.envelope && !current.envelope) {
+      const stamped = this.db
+        .select({ n: sql<number>`count(*)` })
+        .from(cycleEntries)
+        .innerJoin(cycles, eq(cycles.id, cycleEntries.cycleId))
+        .where(and(eq(cycleEntries.recurringItemId, id), eq(cycleEntries.byTransfer, true), gte(cycles.endsOn, today), sql`${cycleEntries.paidOn} is not null`))
+        .get();
+      if (stamped && stamped.n > 0)
+        throw new StoreError('conflict', 'questa voce ha un bonifico timbrato nel ciclo in corso: togli il timbro prima di farla diventare una busta');
+    }
     const values: Partial<typeof recurringItems.$inferInsert> = { ...patch, updatedAt: nowIso(), updatedBy: by };
     if ('note' in patch) values.note = patch.note || null;
     if ('category' in patch) values.category = patch.category || null;
-    this.db.update(recurringItems).set(values).where(eq(recurringItems.id, id)).run();
+    this.db.transaction((tx) => {
+      tx.update(recurringItems).set(values).where(eq(recurringItems.id, id)).run();
+      if (patch.byTransfer !== undefined && patch.byTransfer !== current.byTransfer) {
+        const open = tx.select({ id: cycles.id }).from(cycles).where(gte(cycles.endsOn, today)).all().map((c) => c.id);
+        if (open.length > 0) {
+          tx.update(cycleEntries)
+            .set({ byTransfer: merged.byTransfer, updatedAt: nowIso(), updatedBy: by })
+            .where(
+              and(
+                inArray(cycleEntries.cycleId, open),
+                eq(cycleEntries.recurringItemId, id),
+                eq(cycleEntries.kind, 'expense'),
+                eq(cycleEntries.origin, 'catalog'),
+                isNull(cycleEntries.paidOn),
+              ),
+            )
+            .run();
+        }
+      }
+    });
     return this.getItem(id);
   }
 
@@ -260,6 +300,7 @@ export class CatalogStore {
             activeTo: it.activeTo ?? null,
             archived: it.archived ?? false,
             envelope: it.envelope ?? false,
+            byTransfer: it.byTransfer ?? false,
             createdBy: by,
             updatedBy: by,
           })

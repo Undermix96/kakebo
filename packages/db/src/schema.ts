@@ -58,6 +58,8 @@ export const recurringItems = sqliteTable(
     activeTo: text('active_to'),
     archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
     envelope: integer('is_envelope', { mode: 'boolean' }).notNull().default(false),
+    /** §13 phase 5c: paid by a transfer made by hand, so its occurrences can be stamped. */
+    byTransfer: integer('by_transfer', { mode: 'boolean' }).notNull().default(false),
     ...audit,
   },
   (t) => [
@@ -121,6 +123,10 @@ export const cycleEntries = sqliteTable(
     origin: text('origin', { enum: ['catalog', 'sporadic', 'past_movement'] }).notNull(),
     plannedDate: text('planned_date'),
     envelopeEntryId: text('envelope_entry_id'),
+    // §13 phase 5c. Do not break: only ADD COLUMN with defaults (the app is in production).
+    byTransfer: integer('by_transfer', { mode: 'boolean' }).notNull().default(false),
+    /** Day an expense paid by a transfer was made; it leaves its account that day. */
+    paidOn: text('paid_on'),
     ...audit,
   },
   (t) => [

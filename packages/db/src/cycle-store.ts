@@ -14,6 +14,7 @@ import {
   type DebtPatch,
   cycleConfirmSchema,
   cycleDraftSchema,
+  entryStampSchema,
   lastUsedAmounts,
   parseYearMonth,
   type CalendarEvent,
@@ -97,6 +98,9 @@ export class CycleStore {
           origin: e.origin,
           plannedDate: e.plannedDate,
           envelopeEntryId: e.envelopeEntryId,
+          // §13 phase 5c: only present when set, so older cycles read exactly as before.
+          ...(e.byTransfer ? { byTransfer: true } : {}),
+          ...(e.paidOn ? { paidOn: e.paidOn } : {}),
         })),
       transfers: trf
         .filter((t) => t.cycleId === r.id)
@@ -155,6 +159,10 @@ export class CycleStore {
         if (!target?.recurringItemId || !envelopes.has(target.recurringItemId))
           throw new StoreError('invalid', `«${target?.name ?? e.name}» non è una busta del catalogo`);
       }
+      for (const e of d.entries) {
+        if (e.byTransfer && e.state !== 'excluded' && e.recurringItemId && envelopes.has(e.recurringItemId))
+          throw new StoreError('invalid', `«${e.name}» è una busta: non si paga con un bonifico`);
+      }
 
       let cycle = tx.select().from(cycles).where(eq(cycles.month, month)).get();
       if (cycle?.status === 'confirmed') {
@@ -178,7 +186,7 @@ export class CycleStore {
       for (const b of d.balances) tx.insert(cycleBalances).values({ cycleId, ...b, createdBy: by, updatedBy: by }).run();
       for (const e of d.entries) {
         tx.insert(cycleEntries)
-          .values({ cycleId, ...e, recurringItemId: e.recurringItemId ?? null, plannedDate: e.plannedDate ?? null, envelopeEntryId: e.envelopeEntryId ?? null, createdBy: by, updatedBy: by })
+          .values({ cycleId, ...e, recurringItemId: e.recurringItemId ?? null, plannedDate: e.plannedDate ?? null, envelopeEntryId: e.envelopeEntryId ?? null, byTransfer: e.byTransfer ?? false, paidOn: e.paidOn ?? null, createdBy: by, updatedBy: by })
           .run();
       }
     });
@@ -286,6 +294,41 @@ export class CycleStore {
       .where(eq(cycleTransfers.id, id))
       .run();
     const month = this.db.select({ m: cycles.month }).from(cycles).where(eq(cycles.id, t.cycleId)).get()!.m;
+    return this.getCycle(month);
+  }
+
+  /**
+   * Stamps an expense paid by a transfer with the day it was made (or removes the
+   * stamp with null), in a draft or a confirmed cycle (§13 phase 5c). The day goes
+   * from the balance date of its account to the end of the cycle: a later day is
+   * a transfer scheduled at the bank.
+   */
+  setEntryPaid(month: YearMonth, entryId: string, paidOn: ISODate | null, by: string): CycleRecord {
+    ({ paidOn } = entryStampSchema.parse({ paidOn }));
+    this.db.transaction((tx) => {
+      const cycle = tx.select().from(cycles).where(eq(cycles.month, month)).get();
+      if (!cycle) throw new StoreError('not_found', `nessuna programmazione per ${monthName(month)}`);
+      const where = and(eq(cycleEntries.cycleId, cycle.id), eq(cycleEntries.id, entryId));
+      const e = tx.select().from(cycleEntries).where(where).get();
+      if (!e) throw new StoreError('not_found', 'voce non trovata');
+      if (paidOn) {
+        if (e.kind !== 'expense' || !e.byTransfer) throw new StoreError('invalid', 'si timbra solo una spesa pagata con bonifico');
+        const item = e.recurringItemId
+          ? tx.select({ envelope: recurringItems.envelope }).from(recurringItems).where(eq(recurringItems.id, e.recurringItemId)).get()
+          : undefined;
+        if (item?.envelope) throw new StoreError('invalid', `«${e.name}» è una busta: non si paga con un bonifico`);
+        if (e.state !== 'pending') throw new StoreError('invalid', `«${e.name}» non è da pagare in questo ciclo`);
+        const balance = tx
+          .select({ asOf: cycleBalances.asOf })
+          .from(cycleBalances)
+          .where(and(eq(cycleBalances.cycleId, cycle.id), eq(cycleBalances.accountId, e.accountId)))
+          .get();
+        const from = balance?.asOf ?? cycle.plannedOn;
+        if (paidOn < from || paidOn > cycle.endsOn)
+          throw new StoreError('invalid', 'il giorno del pagamento va dalla data del saldo alla fine del ciclo');
+      }
+      tx.update(cycleEntries).set({ paidOn, updatedAt: nowIso(), updatedBy: by }).where(where).run();
+    });
     return this.getCycle(month);
   }
 
@@ -430,8 +473,11 @@ export class CycleStore {
         c.entries.forEach((e, n) => {
           const accountId = acc(e.account);
           const { account: _a, item, ...rest } = e;
+          const recurringItemId = itemId(item, accountId);
+          if (rest.byTransfer && items.find((i) => i.id === recurringItemId)?.envelope)
+            throw new StoreError('invalid', `«${e.name}» è una busta: non si paga con un bonifico`);
           tx.insert(cycleEntries)
-            .values({ cycleId, id: `imp-${n + 1}`, ...rest, accountId, recurringItemId: itemId(item, accountId), createdBy: by, updatedBy: by })
+            .values({ cycleId, id: `imp-${n + 1}`, ...rest, accountId, recurringItemId, createdBy: by, updatedBy: by })
             .run();
         });
         for (const t of c.transfers) {

@@ -243,3 +243,59 @@ describe('reminders API', () => {
     expect((await json('PATCH', `/api/calendar-events/${ev.id}`, { title: 'Y' })).status).toBe(404);
   });
 });
+
+// §13 phase 5c: expenses paid by a transfer, stamped from Oggi.
+describe('stamping an expense paid by a transfer', () => {
+  it('stamps an entry of a confirmed cycle, by id with "@", and records the identity', async () => {
+    const { json, app, sqlite } = setup();
+    await json('POST', '/api/import/catalog', example);
+    const catalog = (await (await app.request('/api/catalog')).json()) as { accounts: { id: string }[]; items: { id: string; name: string }[] };
+    const affitto = catalog.items.find((i) => i.name === 'Affitto')!;
+    const blu = catalog.accounts[0]!.id;
+    const balances = catalog.accounts.map((a) => ({ accountId: a.id, amountCents: 100000, asOf: '2026-11-10' }));
+    const entry = {
+      id: `${affitto.id}@2026-11-30`,
+      recurringItemId: affitto.id,
+      name: 'Affitto',
+      kind: 'expense',
+      accountId: blu,
+      date: '2026-11-30',
+      amountCents: 65000,
+      state: 'pending',
+      origin: 'catalog',
+    };
+    const draft = { plannedOn: '2026-11-10', endsOn: '2026-12-10', balances, entries: [entry] };
+    expect((await json('PUT', '/api/cycles/2026-11', draft)).status).toBe(200);
+    expect((await json('POST', '/api/cycles/2026-11/confirm', { transfers: [] })).status).toBe(200);
+
+    const url = `/api/cycles/2026-11/entries/${encodeURIComponent(entry.id)}`;
+    // Not flagged yet: refused.
+    expect((await json('PATCH', url, { paidOn: '2026-11-15' })).status).toBe(422);
+    // Flagging the catalog item reaches the cycle in progress.
+    expect((await json('PATCH', `/api/items/${affitto.id}`, { byTransfer: true })).status).toBe(200);
+
+    const res = await json('PATCH', url, { paidOn: '2026-11-15' });
+    expect(res.status).toBe(200);
+    const cycle = await res.json();
+    expect(cycle.status).toBe('confirmed');
+    expect(cycle.entries[0]).toMatchObject({ id: entry.id, byTransfer: true, paidOn: '2026-11-15' });
+    expect(sqlite.prepare('select updated_by as by, paid_on as paid from cycle_entries').get()).toEqual({ by: 'dev@example.com', paid: '2026-11-15' });
+
+    expect((await json('PATCH', url, { paidOn: '2026-12-11' })).status).toBe(422);
+    expect((await json('PATCH', url, { paidOn: 'domani' })).status).toBe(422);
+    expect((await json('PATCH', url, {})).status).toBe(422);
+    expect((await json('PATCH', '/api/cycles/2026-11/entries/nessuna', { paidOn: '2026-11-15' })).status).toBe(404);
+    expect((await json('PATCH', `/api/cycles/novembre/entries/${encodeURIComponent(entry.id)}`, { paidOn: '2026-11-15' })).status).toBe(422);
+
+    const cleared = await (await json('PATCH', url, { paidOn: null })).json();
+    expect(cleared.entries[0]).not.toHaveProperty('paidOn');
+  });
+
+  it('refuses the flag on an envelope', async () => {
+    const { json, app } = setup();
+    await json('POST', '/api/import/catalog', example);
+    const catalog = (await (await app.request('/api/catalog')).json()) as { items: { id: string; envelope: boolean }[] };
+    const spesa = catalog.items.find((i) => i.envelope)!;
+    expect((await json('PATCH', `/api/items/${spesa.id}`, { byTransfer: true })).status).toBe(422);
+  });
+});

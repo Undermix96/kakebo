@@ -42,6 +42,7 @@ export const recurringItemFields = z.object({
   activeTo: isoDate.nullish(),
   archived: z.boolean().optional(),
   envelope: z.boolean().optional(),
+  byTransfer: z.boolean().optional(),
 });
 
 export const activeRangeIsValid = (i: { activeFrom?: string | null; activeTo?: string | null }) =>
@@ -51,9 +52,15 @@ export const ACTIVE_RANGE_MESSAGE = 'la data di fine viene prima di quella di in
 export const envelopeIsValid = (i: { kind?: string; envelope?: boolean | null }) => !i.envelope || i.kind === 'expense';
 export const ENVELOPE_MESSAGE = 'solo una spesa può essere una busta';
 
+/** Only an expense that is not an envelope can be paid by a transfer (phase 5c). */
+export const byTransferIsValid = (i: { kind?: string; envelope?: boolean | null; byTransfer?: boolean | null }) =>
+  !i.byTransfer || (i.kind === 'expense' && !i.envelope);
+export const BY_TRANSFER_MESSAGE = 'solo una spesa che non è una busta si paga con bonifico';
+
 export const recurringItemSchema = recurringItemFields
   .refine(activeRangeIsValid, { message: ACTIVE_RANGE_MESSAGE, path: ['activeTo'] })
-  .refine(envelopeIsValid, { message: ENVELOPE_MESSAGE, path: ['envelope'] });
+  .refine(envelopeIsValid, { message: ENVELOPE_MESSAGE, path: ['envelope'] })
+  .refine(byTransferIsValid, { message: BY_TRANSFER_MESSAGE, path: ['byTransfer'] });
 
 export const cycleEntrySchema = z.object({
   id,
@@ -67,6 +74,8 @@ export const cycleEntrySchema = z.object({
   origin: z.enum(['catalog', 'sporadic', 'past_movement']),
   plannedDate: isoDate.nullish(),
   envelopeEntryId: id.nullish(),
+  byTransfer: z.boolean().optional(),
+  paidOn: isoDate.nullish(),
 });
 
 export const balanceSchema = z.object({ accountId: id, amountCents: cents, asOf: isoDate });

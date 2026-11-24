@@ -43,6 +43,11 @@ export interface RecurringItem {
   archived?: boolean;
   /** An envelope ("busta"): a budget spent bit by bit during the cycle. Expenses only. */
   envelope?: boolean;
+  /**
+   * Paid by a transfer made by hand (not a direct debit): its occurrences can be
+   * stamped with the day they were actually paid. Expenses only, not envelopes (§13 phase 5c).
+   */
+  byTransfer?: boolean;
 }
 
 export type EntryState = 'pending' | 'included_in_balance' | 'excluded';
@@ -64,6 +69,14 @@ export interface CycleEntry {
   plannedDate?: ISODate | null;
   /** For an expense already made out of an envelope: the envelope entry (same cycle) it belongs to. */
   envelopeEntryId?: Id | null;
+  /** Paid by a transfer made by hand: it can be stamped with `paidOn` (§13 phase 5c). */
+  byTransfer?: boolean;
+  /**
+   * Day the transfer was actually made (or scheduled at the bank). It replaces
+   * `date` as the day the expense leaves its account, early or late; `date`
+   * stays the due day. Only for `byTransfer` expenses.
+   */
+  paidOn?: ISODate | null;
 }
 
 /** Balance of an account on a given day (`asOf`): movements dated before it are assumed to be in it. */

@@ -2,6 +2,7 @@ import type { Cents } from './money.ts';
 import { addDays, daysBetween, maxDate, minDate, type ISODate } from './dates.ts';
 import type { Account, Balance, CycleEntry, Id, Transfer } from './types.ts';
 import { envelopeStatus, envelopeSpent, type EnvelopeStatus } from './envelope.ts';
+import { entryDay } from './cycle.ts';
 
 export interface PlanOptions {
   /** Transfers are rounded up to a multiple of this (0 = exact cents). E.g. 100, 500, 1000. */
@@ -53,8 +54,13 @@ export type ProjectionRow =
   | {
       type: 'income' | 'expense';
       date: ISODate;
-      /** Set when the entry was dated before the account's balance date but is still to be paid. */
+      /**
+       * Set when the row is not on the entry's own date: dated before the account's
+       * balance date but still to be paid, or stamped as paid on another day.
+       */
       originalDate?: ISODate;
+      /** Day an expense paid by a transfer was stamped as paid (phase 5c). */
+      paidOn?: ISODate;
       entryId: Id;
       name: string;
       accountId: Id;
@@ -244,7 +250,8 @@ export function planCycle(input: PlanInput): PlanResult {
     }
     assertCents(e.amountCents, `amount of ${e.id}`);
     if (e.amountCents < 0) throw new PlanInputError(`amount of ${e.id} must be positive (the sign comes from kind)`);
-    const date = maxDate(e.date, balanceOf.get(e.accountId)!.asOf);
+    // A stamped transfer-paid expense leaves on the day it was paid (§13 phase 5c).
+    const date = maxDate(entryDay(e), balanceOf.get(e.accountId)!.asOf);
     if (date > end) {
       warnings.push({ type: 'out_of_cycle', entryId: e.id });
       continue;
@@ -587,6 +594,7 @@ export function planCycle(input: PlanInput): PlanResult {
       type: e.kind,
       date: ev.date,
       ...(ev.date !== e.date ? { originalDate: e.date } : {}),
+      ...(e.paidOn ? { paidOn: e.paidOn } : {}),
       entryId: e.id,
       name: e.name,
       accountId: e.accountId,

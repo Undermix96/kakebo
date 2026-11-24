@@ -44,6 +44,27 @@ export interface CycleRecord {
 // ---------- API bodies ----------
 
 /** Save the draft of the four steps (replaces balances and entries). */
+/**
+ * What is wrong with the "paid by transfer" fields of an entry (§13 phase 5c), or null.
+ * Only an expense still to be made (not out of an envelope) is paid by a transfer;
+ * only such an expense, not excluded, carries a stamp. A pending one is stamped from
+ * the balance date of its account to the end of the cycle; one already in the
+ * balance (the balance was read after the transfer) may be stamped before it.
+ */
+export function byTransferIssue(
+  e: Pick<CycleEntry, 'kind' | 'origin' | 'envelopeEntryId' | 'state' | 'byTransfer' | 'paidOn'>,
+  asOf: ISODate,
+  endsOn: ISODate,
+): { field: 'byTransfer' | 'paidOn'; message: string } | null {
+  if (e.byTransfer && !entryCanBeByTransfer(e)) return { field: 'byTransfer', message: 'solo una spesa ancora da fare si paga con bonifico' };
+  if (!e.paidOn) return null;
+  if (!e.byTransfer) return { field: 'paidOn', message: 'si timbra solo una spesa pagata con bonifico' };
+  if (e.state === 'excluded') return { field: 'paidOn', message: 'una voce tolta dal ciclo non si timbra' };
+  if (e.paidOn > endsOn) return { field: 'paidOn', message: 'il giorno del pagamento è dopo la fine del ciclo' };
+  if (e.state === 'pending' && e.paidOn < asOf) return { field: 'paidOn', message: 'il giorno del pagamento è prima della data del saldo' };
+  return null;
+}
+
 export const cycleDraftSchema = z
   .object({
     plannedOn: isoDate,
@@ -75,6 +96,11 @@ export const cycleDraftSchema = z
       else if (e.kind !== 'expense' || e.origin !== 'past_movement')
         ctx.addIssue({ code: 'custom', message: 'nella busta vanno solo spese già fatte', path });
     });
+    const asOf = new Map(d.balances.map((b) => [b.accountId, b.asOf]));
+    d.entries.forEach((e, i) => {
+      const issue = byTransferIssue(e, asOf.get(e.accountId) ?? d.plannedOn, d.endsOn);
+      if (issue) ctx.addIssue({ code: 'custom', message: issue.message, path: ['entries', i, issue.field] });
+    });
   });
 export type CycleDraft = z.infer<typeof cycleDraftSchema>;
 
@@ -96,6 +122,18 @@ export const cycleConfirmSchema = z.object({ transfers: z.array(transferInputSch
 export type CycleConfirm = z.input<typeof cycleConfirmSchema>;
 
 export const transferPatchSchema = z.object({ doneOn: isoDate.nullable() });
+
+/**
+ * Can this cycle entry be paid by a transfer? An expense to be made (catalog or
+ * sporadic), not a movement already made nor an expense out of an envelope.
+ * Envelopes themselves are refused by the store, which knows the catalog.
+ */
+export const entryCanBeByTransfer = (e: Pick<CycleEntry, 'kind' | 'origin' | 'envelopeEntryId'>) =>
+  e.kind === 'expense' && e.origin !== 'past_movement' && !e.envelopeEntryId;
+
+/** Stamp (or un-stamp, with null) an expense paid by a transfer, also in a confirmed cycle. */
+export const entryStampSchema = z.object({ paidOn: isoDate.nullable() });
+export type EntryStamp = z.infer<typeof entryStampSchema>;
 
 // ---------- engine helpers ----------
 
@@ -225,6 +263,12 @@ export const historyImportSchema = z
     f.cycles.forEach((c, i) => {
       if (months.has(c.month)) ctx.addIssue({ code: 'custom', message: `ciclo ripetuto: ${c.month}`, path: ['cycles', i, 'month'] });
       months.add(c.month);
+      // Same rules as a draft for expenses paid by a transfer (§13 phase 5c).
+      const asOf = new Map(c.balances.map((b) => [b.account.toLowerCase(), b.asOf]));
+      c.entries.forEach((e, j) => {
+        const issue = byTransferIssue({ ...e, envelopeEntryId: null }, asOf.get(e.account.toLowerCase()) ?? c.plannedOn, c.endsOn);
+        if (issue) ctx.addIssue({ code: 'custom', message: issue.message, path: ['cycles', i, 'entries', j, issue.field] });
+      });
     });
   });
 export type HistoryImport = z.infer<typeof historyImportSchema>;

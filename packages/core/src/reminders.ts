@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { effectiveAmount, envelopeSpent } from './envelope.ts';
 import type { Cents } from './money.ts';
 import { dateInMonth, daysInMonth, formatDate, formatYearMonth, minDate, monthOf, parseYearMonth, type ISODate, type YearMonth } from './dates.ts';
-import { DEFAULT_END_DAY, occursInMonth } from './cycle.ts';
+import { DEFAULT_END_DAY, entryDay, occursInMonth } from './cycle.ts';
 import type { CatalogItem } from './catalog.ts';
 import type { CalendarEvent, CycleRecord, Debt } from './cycle-record.ts';
 import type { Id } from './types.ts';
@@ -84,7 +84,7 @@ export interface CalendarItem {
   amountCents: Cents | null;
   accountId?: Id;
   toAccountId?: Id;
-  /** Transfer stamped as done. */
+  /** Transfer stamped as done, or expense paid by a transfer stamped as paid (§13 phase 5c). */
   done?: boolean;
   /** Comes from a confirmed cycle (real amounts) rather than from the catalog. */
   fromCycle?: boolean;
@@ -136,19 +136,25 @@ export function monthCalendar(ym: YearMonth, src: CalendarSources): CalendarItem
   for (const c of (src.cycles ?? []).filter((c) => c.status === 'confirmed')) {
     const spent = envelopeSpent(c.entries);
     for (const e of c.entries) {
-      if (monthOf(e.date) !== ym || owner(e.date) !== c || e.state === 'excluded') continue;
-      if (e.recurringItemId) fromCycles.add(e.recurringItemId);
+      // The cycle that owns its due day shows it; a stamped expense paid by a transfer
+      // sits on the day it was paid, even if another cycle owns that day (§13 phase 5c).
+      if (owner(e.date) !== c || e.state === 'excluded') continue;
+      // The catalog item counts as shown in its due month, wherever a stamp puts it.
+      if (e.recurringItemId && monthOf(e.date) === ym) fromCycles.add(e.recurringItemId);
+      const date = entryDay(e);
+      if (monthOf(date) !== ym) continue;
       const item = e.recurringItemId ? itemsById.get(e.recurringItemId) : undefined;
       out.push({
         key: `entry:${c.month}:${e.id}`,
         type: e.kind === 'income' ? 'income' : isSeasonal(item) ? 'deadline' : 'expense',
         name: e.name,
-        date: e.date,
+        date,
         // An envelope shows what is left of it: what was spent out of it is shown on its own days.
         amountCents: effectiveAmount(e, spent),
         accountId: e.accountId,
         fromCycle: true,
         refId: e.id,
+        ...(e.byTransfer ? { done: !!e.paidOn } : {}),
       });
     }
     for (const t of c.transfers) {

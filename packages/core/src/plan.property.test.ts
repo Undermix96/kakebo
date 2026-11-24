@@ -83,3 +83,62 @@ describe('planCycle invariants (property-based)', () => {
     );
   });
 });
+
+// §13 phase 5c: expenses paid by a transfer, stamped with the day they were paid.
+describe('expenses paid by a transfer (property-based)', () => {
+  /** Some expenses flagged, some of those stamped on a day of the cycle. */
+  const arbStamped = arbInput.chain((input) =>
+    fc
+      .array(fc.record({ flag: fc.boolean(), stamp: fc.option(fc.integer({ min: -5, max: DAYS })) }), {
+        minLength: input.entries.length,
+        maxLength: input.entries.length,
+      })
+      .map((marks) => ({
+        input,
+        stamped: {
+          ...input,
+          entries: input.entries.map((e, k): CycleEntry => {
+            const m = marks[k]!;
+            if (e.kind !== 'expense' || !m.flag) return e;
+            return { ...e, byTransfer: true, ...(m.stamp == null ? {} : { paidOn: addDays(TODAY, m.stamp) }) };
+          }),
+        },
+      })),
+  );
+
+  /** The plan without the row fields that only say where a row comes from. */
+  const numbers = (p: ReturnType<typeof planCycle>) =>
+    JSON.stringify({
+      ...p,
+      projection: p.projection.map(({ balances, totalCents, date, amountCents, type }) => ({ balances, totalCents, date, amountCents, type })),
+    });
+
+  it('changes nothing while no expense is stamped', () => {
+    fc.assert(
+      fc.property(arbStamped, ({ input, stamped }) => {
+        const unstamped = { ...stamped, entries: stamped.entries.map(({ paidOn: _p, ...e }) => e) };
+        if (JSON.stringify(planCycle(input)) !== JSON.stringify(planCycle(unstamped))) throw new Error('the flag alone changed the plan');
+      }),
+      { numRuns: 200 },
+    );
+  });
+
+  it('counts a stamped expense exactly as if it were dated on the day it was paid', () => {
+    fc.assert(
+      fc.property(arbStamped, ({ stamped }) => {
+        const moved = { ...stamped, entries: stamped.entries.map(({ paidOn, ...e }) => (paidOn ? { ...e, date: paidOn } : e)) };
+        if (numbers(planCycle(stamped)) !== numbers(planCycle(moved))) throw new Error('a stamp is not the same as the paid day');
+      }),
+      { numRuns: 300 },
+    );
+  });
+
+  it('keeps the invariants with stamped expenses', () => {
+    fc.assert(
+      fc.property(arbStamped, ({ stamped }) => {
+        checkInvariants(stamped, planCycle(stamped));
+      }),
+      { numRuns: 300 },
+    );
+  });
+});

@@ -30,7 +30,8 @@ export function checkInvariants(input: PlanInput, plan: PlanResult): void {
     for (const e of input.entries) {
       const amount = effectiveAmount(e, spent);
       if (e.accountId !== id || e.state !== 'pending' || amount == null) continue;
-      const d = maxDate(e.date, asOf.get(id)!);
+      // A stamped expense paid by a transfer counts on the day it was paid (§13 phase 5c).
+      const d = maxDate(e.paidOn ?? e.date, asOf.get(id)!);
       if (d <= day && d <= input.end) v += (e.kind === 'income' ? 1 : -1) * amount;
     }
     if (withTransfers)

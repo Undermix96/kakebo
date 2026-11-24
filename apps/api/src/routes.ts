@@ -11,6 +11,7 @@ import {
   debtPatchSchema,
   cycleConfirmSchema,
   cycleDraftSchema,
+  entryStampSchema,
   historyImportSchema,
   itemCreateSchema,
   transferPatchSchema,
@@ -34,6 +35,9 @@ const body = <T extends ZodType>(schema: T) =>
 const idParam = zValidator('param', z.object({ id: z.string().min(1).max(64) }));
 const monthParam = zValidator('param', z.object({ month: yearMonth }), (result, c) => {
   if (!result.success) return c.json({ error: 'mese non valido (AAAA-MM)' }, 422);
+});
+const entryParam = zValidator('param', z.object({ month: yearMonth, id: z.string().min(1).max(200) }), (result, c) => {
+  if (!result.success) return c.json({ error: 'voce o mese non validi' }, 422);
 });
 
 /** The REST API under /api. Chained so that the Hono client can infer its types. */
@@ -91,6 +95,11 @@ export function apiRoutes(store: CatalogStore, cycles: CycleStore) {
         return c.json({ ok: true });
       })
       // Stamp a transfer as done ("済"), or remove the stamp.
+      // Stamp an expense paid by a transfer (§13 phase 5c), also in a confirmed cycle.
+      .patch('/cycles/:month/entries/:id', entryParam, body(entryStampSchema), (c) => {
+        const { month, id } = c.req.valid('param');
+        return c.json(cycles.setEntryPaid(month, id, c.req.valid('json').paidOn, c.get('identity').id));
+      })
       .patch('/transfers/:id', idParam, body(transferPatchSchema), (c) =>
         c.json(cycles.setTransferDone(c.req.valid('param').id, c.req.valid('json').doneOn, c.get('identity').id)),
       )
